@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#10172a">
+<title>Épreuve d'effort</title>
+<style>
+  /* Themes are one block of CSS variables each, as in Atmen. --series-* are the
+     chart palette, validated against each theme's chart surface with the
+     dataviz validator (adjacent-pair CVD ΔE 8.4 dark / 9.1 light). The light
+     theme's aqua and yellow sit below 3:1 on white, so every chart carries
+     direct labels and the full data table is always on the page — that is the
+     required relief, not an optional extra. */
+  :root,
+  :root[data-theme="nuit"]{
+    --bg:#10172a; --bg-soft:#1a2340; --bg-card:#1a2340;
+    --accent:#a9ece2; --accent-soft:#3fa9a0;
+    --btn-lo:#3fa9a0; --btn-hi:#a9ece2; --on-accent:#0d1424;
+    --ink:#e9eef5; --ink-dim:#8b99b4; --ink-mute:#6b7996;
+    --line:#28324f; --grid:#1f2942; --scrim:rgba(10,15,30,.66);
+    --pill-on:transparent;
+    --ok:#0ca30c; --warn:#fab219; --bad:#e66767;
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+  }
+  /* Clinique — light, high contrast, what you print and hand over. */
+  :root[data-theme="clinique"]{
+    --bg:#ffffff; --bg-soft:#f2f5f9; --bg-card:#ffffff;
+    --accent:#15607a; --accent-soft:#3f93ad;
+    --btn-lo:#124f66; --btn-hi:#1d7593; --on-accent:#ffffff;
+    --ink:#101820; --ink-dim:#4a5568; --ink-mute:#6b7280;
+    --line:#d3dae4; --grid:#e6ebf1; --scrim:rgba(20,30,45,.45);
+    --pill-on:#dce7ee;
+    --ok:#006300; --warn:#8a5a00; --bad:#c02626;
+    --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
+  }
+  /* Sauge — light, calm, for reading the history on the sofa. */
+  :root[data-theme="sauge"]{
+    --bg:#f3f7f2; --bg-soft:#e6efe6; --bg-card:#fbfdfa;
+    --accent:#2f7454; --accent-soft:#6cb492;
+    --btn-lo:#24583f; --btn-hi:#35805a; --on-accent:#f3fbf6;
+    --ink:#1b2b22; --ink-dim:#4d6157; --ink-mute:#6d8073;
+    --line:#d3e0d6; --grid:#e3ece3; --scrim:rgba(30,50,38,.45);
+    --pill-on:#d7e8dc;
+    --ok:#006300; --warn:#8a5a00; --bad:#c02626;
+    --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    min-height:100%;
+    background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    padding:max(env(safe-area-inset-top),12px) 14px calc(max(env(safe-area-inset-bottom),12px) + 8px);
+    -webkit-user-select:none;user-select:none;
+    line-height:1.45;
+  }
+  .wrap{max-width:560px;margin:0 auto}
+
+  header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0 10px}
+  header h1{font-size:.74rem;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-dim)}
+  .ver{letter-spacing:.06em;opacity:.55;font-weight:400}
+  .hbtns{display:flex;gap:4px}
+  .iconbtn{
+    background:none;border:1px solid var(--line);border-radius:10px;
+    color:var(--ink-dim);cursor:pointer;font-size:1rem;line-height:1;
+    padding:8px 10px;font-family:inherit;position:relative;
+  }
+  .iconbtn:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  #queueBadge{
+    position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;
+    border-radius:9px;background:var(--warn);color:#000;
+    font-size:.68rem;font-weight:700;line-height:18px;text-align:center;padding:0 4px;
+    display:none;
+  }
+  #queueBadge.on{display:block}
+
+  .screen{display:none}
+  .screen.on{display:block}
+
+  h2{font-size:.76rem;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 10px}
+  h3{font-size:.95rem;font-weight:600;color:var(--ink);margin:0 0 8px}
+  .card{background:var(--bg-card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+  .muted{color:var(--ink-dim);font-size:.84rem}
+  .tiny{color:var(--ink-mute);font-size:.76rem}
+  .row{display:flex;gap:8px;align-items:center}
+  .row.wrap2{flex-wrap:wrap}
+  .grow{flex:1}
+  .sep{height:1px;background:var(--line);margin:12px 0}
+
+  button{font-family:inherit}
+  .btn{
+    width:100%;padding:16px;border:none;border-radius:14px;cursor:pointer;
+    font-size:1rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--on-accent);background:linear-gradient(135deg,var(--btn-hi),var(--btn-lo));
+  }
+  .btn:active{transform:scale(.985)}
+  .btn.ghost{background:none;border:1px solid var(--line);color:var(--ink-dim);font-weight:500}
+  .btn.danger{background:none;border:1px solid var(--bad);color:var(--bad)}
+  .btn.sm{padding:11px 14px;font-size:.82rem;letter-spacing:.06em;text-transform:none;width:auto}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  .btns .btn{width:auto;flex:1;min-width:120px}
+
+  .pills{display:flex;gap:6px;flex-wrap:wrap}
+  .pill{
+    padding:9px 13px;border-radius:999px;border:1px solid var(--line);
+    background:none;color:var(--ink-dim);font-size:.82rem;cursor:pointer;
+  }
+  .pill[aria-pressed="true"]{color:var(--accent);border-color:var(--accent-soft);background:var(--pill-on)}
+
+  label.fld{display:block;margin-bottom:12px}
+  label.fld > span{display:block;font-size:.78rem;color:var(--ink-dim);margin-bottom:5px}
+  input[type=text],input[type=number],input[type=date],select,textarea{
+    width:100%;padding:11px 12px;border-radius:10px;
+    border:1px solid var(--line);background:var(--bg-soft);color:var(--ink);
+    font-family:inherit;font-size:1rem;
+    -webkit-user-select:text;user-select:text;
+  }
+  textarea{min-height:64px;resize:vertical}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+  /* ---------- run screen ---------- */
+  #phaseName{font-size:.8rem;letter-spacing:.24em;text-transform:uppercase;color:var(--accent);text-align:center}
+  #clock{
+    font-size:clamp(3.6rem,20vw,5.6rem);font-weight:250;
+    font-variant-numeric:tabular-nums;text-align:center;line-height:1;margin:2px 0 4px;
+  }
+  #bar{height:6px;border-radius:3px;background:var(--bg-soft);overflow:hidden;border:1px solid var(--line)}
+  #barFill{height:100%;width:0;background:linear-gradient(90deg,var(--accent-soft),var(--accent));transition:width .25s linear}
+
+  /* Cadence is the largest live number on purpose: on this bike, at a fixed
+     resistance level, the load falls when cadence falls. See CONCEPT.md §3.2. */
+  #cadBox{
+    margin-top:12px;border:2px solid var(--line);border-radius:16px;padding:12px;text-align:center;
+    transition:border-color .25s,background .25s;
+  }
+  #cadBox.low{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+  #cadBox .lbl{font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim)}
+  #cadVal{font-size:clamp(2.6rem,15vw,4rem);font-weight:300;font-variant-numeric:tabular-nums;line-height:1.05}
+  #cadUnit{font-size:.9rem;color:var(--ink-dim)}
+  .targets{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .tgt{background:var(--bg-soft);border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center}
+  .tgt .lbl{font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim)}
+  .tgt .val{font-size:1.9rem;font-weight:400;font-variant-numeric:tabular-nums;line-height:1.1}
+  .tgt .val small{font-size:.8rem;color:var(--ink-dim);font-weight:400}
+
+  /* ---------- entry sheet / steppers ---------- */
+  .sheet{
+    position:fixed;inset:0;background:var(--scrim);
+    -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+    display:none;align-items:flex-end;justify-content:center;z-index:20;
+  }
+  .sheet.open{display:flex}
+  .panel{
+    width:100%;max-width:560px;max-height:92vh;overflow-y:auto;
+    background:var(--bg-soft);border:1px solid var(--line);border-bottom:none;
+    border-radius:22px 22px 0 0;
+    padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+  .panelHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px}
+  .closeX{background:none;border:1px solid var(--line);border-radius:50%;width:34px;height:34px;color:var(--ink-dim);cursor:pointer;flex:none}
+
+  .step{margin-bottom:10px}
+  .step .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+  .step .name{font-size:.86rem;color:var(--ink)}
+  .step .est{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--warn)}
+  .step .est.conf{color:var(--ok)}
+  .stepRow{display:flex;align-items:stretch;gap:6px}
+  .stepRow button{
+    flex:none;width:52px;border:1px solid var(--line);background:var(--bg-card);
+    color:var(--ink);font-size:1rem;font-weight:600;border-radius:11px;cursor:pointer;
+  }
+  .stepRow button:active{background:var(--accent-soft);color:var(--on-accent)}
+  .stepRow .v{
+    flex:1;text-align:center;font-size:1.7rem;font-weight:400;font-variant-numeric:tabular-nums;
+    background:var(--bg-card);border:1px solid var(--line);border-radius:11px;padding:8px 4px;
+    display:flex;align-items:center;justify-content:center;gap:4px;
+  }
+  .stepRow .v.est{color:var(--ink-dim);font-style:italic}
+  .stepRow .v small{font-size:.72rem;color:var(--ink-dim);font-style:normal}
+
+  .symp{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+
+  /* ---------- tables ---------- */
+  .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px}
+  table{border-collapse:collapse;width:100%;font-size:.82rem;font-variant-numeric:tabular-nums}
+  th,td{padding:6px 7px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim);font-weight:600;text-align:right;vertical-align:bottom}
+  th:first-child,td:first-child{text-align:left}
+  tr.grp td{background:var(--bg-soft);font-weight:600;text-align:left;color:var(--ink-dim);font-size:.74rem;letter-spacing:.08em;text-transform:uppercase}
+  td.flag{color:var(--warn)}
+
+  .kv{display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-size:.9rem}
+  .kv dt{color:var(--ink-dim)}
+  .kv dd{text-align:right;font-variant-numeric:tabular-nums}
+  .kv dd b{font-weight:600}
+
+  .hero{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  .stat{background:var(--bg-soft);border:1px solid var(--line);border-radius:14px;padding:12px}
+  .stat .lbl{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim)}
+  .stat .num{font-size:1.75rem;font-weight:350;line-height:1.15}
+  .stat .sub{font-size:.74rem;color:var(--ink-mute)}
+
+  .note{border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:.84rem;color:var(--ink-dim);margin:8px 0}
+  .note.warn{border-color:var(--warn)}
+  .note.bad{border-color:var(--bad);color:var(--ink)}
+
+  /* ---------- charts ---------- */
+  figure{margin:0 0 14px}
+  figcaption{font-size:.86rem;font-weight:600;margin-bottom:2px}
+  .figsub{font-size:.74rem;color:var(--ink-mute);margin-bottom:6px}
+  .chart{position:relative}
+  .chart svg{display:block;width:100%;height:auto;overflow:visible}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.76rem;color:var(--ink-dim);margin-top:4px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .tip{
+    position:absolute;pointer-events:none;opacity:0;transition:opacity .1s;
+    background:var(--bg-card);border:1px solid var(--line);border-radius:9px;
+    padding:6px 9px;font-size:.76rem;font-variant-numeric:tabular-nums;
+    box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:3;white-space:nowrap;
+  }
+  .tip.on{opacity:1}
+
+  .hist{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer}
+  .hist:last-child{border-bottom:none}
+  .hist .d{font-size:.92rem}
+  .hist .m{font-size:.76rem;color:var(--ink-dim)}
+  .hist .tag{font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);border-radius:6px;padding:2px 6px;color:var(--ink-mute)}
+
+  @media print{
+    body{background:#fff;color:#000;padding:0;font-size:10.5pt}
+    header,.screen:not(.on),.noprint,.sheet{display:none !important}
+    .card{border:none;padding:0;margin:0 0 10pt;break-inside:avoid}
+    .wrap{max-width:none}
+    table{font-size:9pt}
+    th,td{border-bottom:1px solid #bbb}
+    figure{break-inside:avoid}
+    #printHead{display:block !important}
+  }
+  #printHead{display:none}
+  @media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="noprint">
+  <h1>Épreuve d'effort <span class="ver"></span></h1>
+  <div class="hbtns">
+    <button class="iconbtn" id="queueBtn" aria-label="Mesures en attente">&#9998;<span id="queueBadge">0</span></button>
+    <button class="iconbtn" id="gearBtn" aria-label="Réglages">&#9881;</button>
+  </div>
+</header>
+
+<!-- ============ ACCUEIL ============ -->
+<section class="screen on" id="scHome">
+  <div class="card" id="firstRun" hidden>
+    <h3>Avant de commencer</h3>
+    <p class="muted">Cette application n'est pas un dispositif médical et ne remplace pas
+    une épreuve d'effort clinique. Elle ne comporte <b>aucun ECG</b> — elle ne peut donc
+    pas dépister une ischémie myocardique ni un trouble du rythme. C'est un carnet de
+    mesures : charge, fréquence cardiaque, tension, récupération.</p>
+    <p class="muted" style="margin-top:8px">Parlez-en à votre médecin avant de faire un test
+    d'effort seul, et arrêtez-vous à la moindre gêne.</p>
+    <div class="sep"></div>
+    <button class="btn" id="firstOk">J'ai compris</button>
+  </div>
+
+  <div class="card">
+    <h2>Nouvelle épreuve</h2>
+    <dl class="kv" id="homeSummary"></dl>
+    <div class="sep"></div>
+    <div class="note" id="checklist">
+      <b>Avant de monter :</b> résistance en <b>mode manuel</b> — SmartAdjust / iFIT
+      désactivé, sinon le protocole n'est pas reproductible. Tensiomètre en place,
+      bras au repos sur l'accoudoir. Téléphone sur la tablette.
+    </div>
+    <label class="fld"><span>Traitement en cours (repris dans le rapport)</span>
+      <input type="text" id="treatNow" placeholder="ex. comprimé 1 x/jour"></label>
+    <label class="fld"><span>Poids du jour (kg) — le résultat y est très sensible</span>
+      <input type="number" id="weightNow" step="0.5" min="30" max="250"></label>
+    <div class="btns">
+      <button class="btn" id="startBtn">Commencer</button>
+    </div>
+    <p class="tiny" style="margin-top:8px" id="protoLine"></p>
+  </div>
+
+  <div class="card">
+    <h2>Historique</h2>
+    <div id="histList"></div>
+    <div class="sep"></div>
+    <div class="btns">
+      <button class="btn ghost sm" id="importBtn">Importer un fichier</button>
+      <button class="btn ghost sm" id="exportAllBtn">Exporter tout</button>
+    </div>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
+    <p class="tiny" style="margin-top:8px">Les tests ne vivent que dans ce navigateur.
+    Un navigateur peut effacer ses données sans avertir : <b>exportez après chaque test</b>.</p>
+  </div>
+</section>
+
+<!-- ============ ÉPREUVE ============ -->
+<section class="screen" id="scRun">
+  <div id="phaseName">Repos</div>
+  <div id="clock">--:--</div>
+  <div id="bar"><div id="barFill"></div></div>
+
+  <div id="cadBox">
+    <div class="lbl" id="cadLbl">Cadence</div>
+    <div id="cadVal">—</div>
+    <div id="cadUnit"></div>
+  </div>
+
+  <div class="targets">
+    <div class="tgt"><div class="lbl">Charge</div><div class="val" id="tgtW">—</div></div>
+    <div class="tgt"><div class="lbl">Niveau</div><div class="val" id="tgtLvl">—</div></div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="row">
+      <div class="grow">
+        <div class="tiny">Palier</div>
+        <div id="palierNo" style="font-size:1.1rem">—</div>
+      </div>
+      <button class="btn sm ghost" id="cadDownBtn">− cadence</button>
+      <button class="btn sm ghost" id="cadUpBtn">+ cadence</button>
+    </div>
+    <p class="tiny" id="cadHint" style="margin-top:6px"></p>
+  </div>
+
+  <div class="btns" style="margin-bottom:10px">
+    <button class="btn" id="measureBtn">Saisir une mesure</button>
+  </div>
+  <div class="btns">
+    <button class="btn danger" id="stopBtn">STOP — j'arrête</button>
+  </div>
+  <div class="btns" style="margin-top:8px">
+    <button class="btn ghost sm" id="finishBtn" hidden>Terminer et voir le rapport</button>
+    <button class="btn ghost sm" id="abortBtn">Abandonner</button>
+  </div>
+  <div class="note warn" style="margin-top:12px">Arrêtez immédiatement en cas de douleur
+  ou d'oppression thoracique, d'essoufflement marqué, de vertige ou de malaise.</div>
+</section>
+
+<!-- ============ RAPPORT ============ -->
+<section class="screen" id="scReport">
+  <div id="printHead"></div>
+  <div id="reportBody"></div>
+  <div class="btns noprint" style="margin-top:4px">
+    <button class="btn ghost sm" id="printBtn">Imprimer</button>
+    <button class="btn ghost sm" id="jsonBtn">JSON</button>
+    <button class="btn ghost sm" id="csvBtn">CSV</button>
+  </div>
+  <div class="btns noprint" style="margin-top:8px">
+    <button class="btn ghost sm" id="backHomeBtn">← Accueil</button>
+    <button class="btn danger sm" id="delBtn">Supprimer</button>
+  </div>
+</section>
+
+</div><!-- /wrap -->
+
+<!-- ============ FEUILLE DE SAISIE ============ -->
+<div class="sheet" id="entrySheet" role="dialog" aria-modal="true" aria-label="Saisie">
+  <div class="panel">
+    <div class="panelHead">
+      <div>
+        <h2 style="margin:0" id="entryTitle">Mesure</h2>
+        <div class="tiny" id="entrySub"></div>
+      </div>
+      <button class="closeX" id="entryClose" aria-label="Fermer">&#10005;</button>
+    </div>
+    <div class="pills" id="cardPicker" style="margin-bottom:10px"></div>
+    <div id="steppers"></div>
+    <div class="sep"></div>
+    <div class="tiny">Symptômes</div>
+    <div class="symp" id="sympRow"></div>
+    <div class="sep"></div>
+    <button class="btn" id="entrySave">Enregistrer</button>
+    <p class="tiny" style="margin-top:8px">Le chronomètre continue de tourner. Une valeur
+    laissée sur son estimation reste marquée comme telle et n'entre pas dans le rapport
+    comme une mesure.</p>
+  </div>
+</div>
+
+<!-- ============ RÉGLAGES ============ -->
+<div class="sheet" id="setSheet" role="dialog" aria-modal="true" aria-label="Réglages">
+  <div class="panel">
+    <div class="panelHead">
+      <h2 style="margin:0">Réglages <span class="ver"></span></h2>
+      <button class="closeX" id="setClose" aria-label="Fermer">&#10005;</button>
+    </div>
+
+    <h3>Profil</h3>
+    <div class="two">
+      <label class="fld"><span>Date de naissance</span><input type="date" id="fDob"></label>
+      <label class="fld"><span>Sexe</span><select id="fSex"><option value="M">Homme</option><option value="F">Femme</option></select></label>
+    </div>
+    <div class="two">
+      <label class="fld"><span>Poids (kg)</span><input type="number" id="fWeight" step="0.5"></label>
+      <label class="fld"><span>Taille (cm)</span><input type="number" id="fHeight" step="1"></label>
+    </div>
+    <label class="fld"><span>Traitement habituel</span><input type="text" id="fTreat"></label>
+    <p class="tiny" id="fmtLine"></p>
+
+    <div class="sep"></div>
+    <h3>Protocole</h3>
+    <p class="tiny" style="margin-bottom:8px">Réglé sur le protocole de votre cardiologue :
+    repos, puis 50 W et +25 W toutes les 2 minutes, sans échauffement. Le garder identique
+    d'une année sur l'autre est ce qui rend les tests comparables.</p>
+    <div class="three">
+      <label class="fld"><span>Départ (W)</span><input type="number" id="fStartW" step="5"></label>
+      <label class="fld"><span>Incrément (W)</span><input type="number" id="fStepW" step="5"></label>
+      <label class="fld"><span>Palier (s)</span><input type="number" id="fPalierSec" step="10"></label>
+    </div>
+    <div class="two">
+      <label class="fld"><span>Signal mesure (s avant la fin)</span><input type="number" id="fLead" step="5"></label>
+      <label class="fld"><span>Tension tous les … paliers</span><input type="number" id="fBpEvery" step="1" min="1"></label>
+    </div>
+    <label class="fld"><span>Récupération — minutes de mesure</span><input type="text" id="fRecov" placeholder="1, 3, 5"></label>
+
+    <div class="sep"></div>
+    <h3>Vélo et console</h3>
+    <p class="tiny" style="margin-bottom:8px">Cochez ce que votre console affiche réellement.
+    Tout le reste s'y adapte.</p>
+    <div class="pills" id="consoleRow">
+      <button class="pill" data-k="watts">Watts</button>
+      <button class="pill" data-k="rpm">tr/min</button>
+      <button class="pill" data-k="kmh">km/h</button>
+      <button class="pill" data-k="level">Niveau</button>
+    </div>
+    <div class="two" style="margin-top:12px">
+      <label class="fld"><span>Cadence — unité</span>
+        <select id="fCadUnit"><option value="kmh">km/h</option><option value="rpm">tr/min</option></select></label>
+      <label class="fld"><span>Cadence cible</span><input type="number" id="fCadTarget" step="1"></label>
+    </div>
+    <label class="fld"><span>Tolérance cadence (alerte en dessous)</span><input type="number" id="fCadTol" step="1"></label>
+
+    <div class="sep"></div>
+    <h3>Table charge → niveau</h3>
+    <p class="tiny" style="margin-bottom:8px">Un tour d'étalonnage : à la cadence cible,
+    notez le niveau de résistance qui donne chaque charge. Ensuite cette table ne change
+    plus jamais — c'est elle qui rend « 100 W » reproductible dans deux ans.</p>
+    <div id="levelMap"></div>
+
+    <div class="sep"></div>
+    <h3>Signaux</h3>
+    <div class="pills">
+      <button class="pill" id="pTone">Sons</button>
+      <button class="pill" id="pVoice">Voix</button>
+    </div>
+    <p class="tiny" style="margin-top:6px">Appuyez sur « Sons » pour entendre le signal de mesure.</p>
+
+    <div class="sep"></div>
+    <h3>Thème</h3>
+    <div class="pills" id="themeRow">
+      <button class="pill" data-theme="nuit">Nuit</button>
+      <button class="pill" data-theme="clinique">Clinique</button>
+      <button class="pill" data-theme="sauge">Sauge</button>
+    </div>
+
+    <div class="sep"></div>
+    <h3>Langue</h3>
+    <div class="pills" id="langRow">
+      <button class="pill" data-lang="fr">Français</button>
+      <button class="pill" data-lang="en">English</button>
+      <button class="pill" data-lang="de">Deutsch</button>
+    </div>
+
+    <div class="sep"></div>
+    <button class="btn" id="setDone">Terminé</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const APP_VERSION = 'v0.1';
+document.querySelectorAll('.ver').forEach(el => { el.textContent = APP_VERSION; });
+
+// ============================================================ i18n
+// French is the primary language: the report has to sit next to a Swiss
+// cardiologist's page without translation, so FR uses the same labels (palier,
+// T.A. in cmHg, double produit, motif d'arrêt). EN/DE cover the running UI.
+const LANGS = {
+  fr: { code:'fr-FR',
+    repos:'Repos', palier:'Palier', recup:'Après l\'effort', done:'Terminé',
+    cadence:'Cadence', charge:'Charge', niveau:'Niveau', level:'niveau',
+    vMeasure:'Mesurez', vBp:'Tension, maintenant', vCad:'Cadence',
+    vRecup:'Récupération', vPalier:(n,l)=>`Palier ${n}` + (l!=null?`, niveau ${l}`:''),
+    fc:'Fréq. card.', ta:'T.A.', spo2:'SpO₂', rpe:'Pénibilité', dp:'Double produit',
+    sympNone:'aucun', sympChest:'thorax', sympBreath:'essoufflement',
+    sympLegs:'jambes', sympDizzy:'vertige',
+    stopLegs:'Fatigue des membres inférieurs', stopBreath:'Essoufflement',
+    stopChest:'Gêne thoracique', stopTarget:'Objectif atteint', stopOther:'Autre',
+    est:'estimé', conf:'confirmé',
+  },
+  en: { code:'en-GB',
+    repos:'Rest', palier:'Stage', recup:'After exercise', done:'Done',
+    cadence:'Cadence', charge:'Load', niveau:'Level', level:'level',
+    vMeasure:'Measure', vBp:'Blood pressure now', vCad:'Cadence',
+    vRecup:'Recovery', vPalier:(n,l)=>`Stage ${n}` + (l!=null?`, level ${l}`:''),
+    fc:'Heart rate', ta:'BP', spo2:'SpO₂', rpe:'Exertion', dp:'Double product',
+    sympNone:'none', sympChest:'chest', sympBreath:'breathless',
+    sympLegs:'legs', sympDizzy:'dizzy',
+    stopLegs:'Leg fatigue', stopBreath:'Breathlessness',
+    stopChest:'Chest discomfort', stopTarget:'Target reached', stopOther:'Other',
+    est:'estimate', conf:'confirmed',
+  },
+  de: { code:'de-DE',
+    repos:'Ruhe', palier:'Stufe', recup:'Nach Belastung', done:'Fertig',
+    cadence:'Trittfrequenz', charge:'Last', niveau:'Stufe', level:'Stufe',
+    vMeasure:'Messen', vBp:'Blutdruck jetzt', vCad:'Trittfrequenz',
+    vRecup:'Erholung', vPalier:(n,l)=>`Stufe ${n}` + (l!=null?`, Widerstand ${l}`:''),
+    fc:'Herzfrequenz', ta:'Blutdruck', spo2:'SpO₂', rpe:'Anstrengung', dp:'Doppelprodukt',
+    sympNone:'keine', sympChest:'Brust', sympBreath:'Atemnot',
+    sympLegs:'Beine', sympDizzy:'Schwindel',
+    stopLegs:'Beinermüdung', stopBreath:'Atemnot',
+    stopChest:'Brustbeschwerden', stopTarget:'Ziel erreicht', stopOther:'Andere',
+    est:'geschätzt', conf:'bestätigt',
+  },
+};
+const L = () => LANGS[cfg.lang] || LANGS.fr;
+
+// ============================================================ state
+const DEFAULTS = {
+  lang:'fr', theme:'nuit', seenIntro:false,
+  dob:'', sex:'M', weight:100, height:180, treatment:'',
+  startW:50, stepW:25, palierSec:120, measureLead:45, bpEvery:1,
+  recovery:[1,3,5],
+  cadUnit:'kmh', cadTarget:24, cadTol:2,
+  csl:{ watts:true, rpm:false, kmh:true, level:true },
+  levelMap:{},               // watts -> resistance level
+  tone:true, voice:true,
+};
+let cfg = JSON.parse(JSON.stringify(DEFAULTS));
+let tests = [];
+
+const SKEY = 'tec-settings-v1', TKEY = 'tec-tests-v1';
+function save(){ try{ localStorage.setItem(SKEY, JSON.stringify(cfg)); }catch(e){} }
+function saveTests(){ try{ localStorage.setItem(TKEY, JSON.stringify(tests)); }catch(e){} }
+function load(){
+  try{
+    const s = localStorage.getItem(SKEY);
+    if (s) { const o = JSON.parse(s); Object.assign(cfg, o); cfg.csl = Object.assign({}, DEFAULTS.csl, o.csl||{}); }
+    const t = localStorage.getItem(TKEY);
+    if (t) tests = JSON.parse(t) || [];
+  }catch(e){}
+}
+
+const $ = id => document.getElementById(id);
+const el = (tag, cls, txt) => { const n = document.createElement(tag); if(cls) n.className = cls; if(txt!=null) n.textContent = txt; return n; };
+
+// ============================================================ formatting
+// The report prints blood pressure in cmHg with a decimal comma — 13,5/8 for
+// 135/80 — and the double product is computed on that cmHg figure, which is why
+// it reads 1040 and not 10395. Stored internally in mmHg; converted only here.
+const nf = (v, d=0) => v==null || !isFinite(v) ? '—' : v.toFixed(d).replace('.', cfg.lang==='fr' ? ',' : '.');
+function cmHg(mm){
+  if (mm==null) return '—';
+  const v = mm/10;
+  let s = v.toFixed(1);
+  if (s.endsWith('.0')) s = s.slice(0,-2);
+  return cfg.lang==='fr' ? s.replace('.',',') : s;
+}
+const taStr = r => (r.sys==null && r.dia==null) ? '—' : `${cmHg(r.sys)}/${cmHg(r.dia)}`;
+const dblProd = r => (r.sys!=null && r.hr!=null) ? Math.round(r.sys/10*r.hr) : null;
+const mmss = s => { s = Math.max(0, Math.ceil(s)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+function ageAt(dob, iso){
+  if (!dob) return null;
+  const b = new Date(dob), d = new Date(iso);
+  let a = d.getFullYear() - b.getFullYear();
+  const m = d.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && d.getDate() < b.getDate())) a--;
+  return a;
+}
+const dateStr = iso => new Date(iso).toLocaleDateString(L().code, {day:'2-digit', month:'long', year:'numeric'});
+
+// ============================================================ audio  (from Atmen)
+let actx = null, nbuf = null;
+const LEAD = 0.06;
+function ensureAudio(){
+  if (!actx) {
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return;
+    actx = new C();
+    // iOS only truly starts a context once something has played inside a user
+    // gesture; one silent sample unlocks it.
+    const s = actx.createBufferSource();
+    s.buffer = actx.createBuffer(1,1,actx.sampleRate);
+    s.connect(actx.destination); s.start(0);
+  }
+  if (actx.state === 'suspended') actx.resume();
+}
+function noise(){
+  if (!nbuf){
+    const n = Math.floor(actx.sampleRate*1.2);
+    nbuf = actx.createBuffer(1,n,actx.sampleRate);
+    const d = nbuf.getChannelData(0);
+    for (let i=0;i<n;i++) d[i] = Math.random()*2-1;
+  }
+  const s = actx.createBufferSource(); s.buffer = nbuf; return s;
+}
+function osc(type,t0,f0,f1,glide,peak,att,dec,out){
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0,t0);
+  if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1,t0+glide);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(peak,t0+att);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+att+dec);
+  o.connect(g).connect(out||actx.destination);
+  o.start(t0); o.stop(t0+att+dec+0.05);
+}
+function click(t0,f,peak,dec){
+  const s = noise(), bp = actx.createBiquadFilter(), g = actx.createGain();
+  bp.type='bandpass'; bp.frequency.value=f; bp.Q=1.2;
+  g.gain.setValueAtTime(peak,t0);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dec);
+  s.connect(bp).connect(g).connect(actx.destination);
+  s.start(t0); s.stop(t0+dec+0.01);
+}
+const CUES = {
+  measure(){ const t=actx.currentTime+LEAD; osc('sine',t,440,660,.18,.28,.02,.30); osc('sine',t+.30,560,840,.18,.26,.02,.34); },
+  palier(){ const t=actx.currentTime+LEAD; osc('triangle',t,300,300,0,.30,.006,.28); osc('sine',t,600,600,0,.16,.01,.34); },
+  tick(){ click(actx.currentTime+LEAD, 1400, .16, .04); },
+  cad(){ const t=actx.currentTime+LEAD; osc('sine',t,240,200,.10,.20,.02,.16); },
+  end(){ const t=actx.currentTime+LEAD; [660,550,440].forEach((f,i)=>osc('sine',t+i*.26,f,f,0,.26,.02,.40)); },
+};
+function cue(name){ if (!cfg.tone) return; ensureAudio(); if (actx && CUES[name]) CUES[name](); }
+function speak(text){
+  if (!cfg.voice || !('speechSynthesis' in window) || !text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = L().code; u.rate = .95; u.volume = 1;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+
+// ============================================================ wake lock
+let wl = null;
+async function grabWake(){ try{ if ('wakeLock' in navigator) wl = await navigator.wakeLock.request('screen'); }catch(e){} }
+function dropWake(){ if (wl){ wl.release().catch(()=>{}); wl = null; } }
+document.addEventListener('visibilitychange', () => {
+  if (run.state !== 'idle' && document.visibilityState === 'visible') grabWake();
+});
+
+// ============================================================ engine
+// One test in progress. The clock never stops for data entry: a measurement
+// creates an open card in a queue and is tagged to the palier it was measured
+// in, not the one it happened to be typed in.
+const run = { state:'idle', test:null, t0:0, palier:0, raf:0, lastTick:-1, cued:false, cadCued:0, stopAt:0, recCued:{} };
+
+function wattsFor(n){ return cfg.startW + (n-1)*cfg.stepW; }
+function levelFor(w){ const v = cfg.levelMap[String(w)]; return v==null || v==='' ? null : Number(v); }
+
+function newTest(){
+  return {
+    id: 'T'+Date.now(),
+    date: new Date().toISOString(),
+    app: APP_VERSION,
+    modality: 'home-recumbent',
+    bike: 'NordicTrack G LE Recumbent',
+    profile: { dob:cfg.dob, sex:cfg.sex, weight:Number($('weightNow').value)||cfg.weight,
+               height:cfg.height, treatment:$('treatNow').value || cfg.treatment },
+    proto: { startW:cfg.startW, stepW:cfg.stepW, palierSec:cfg.palierSec,
+             cadUnit:cfg.cadUnit, cadTarget:cfg.cadTarget, recovery:cfg.recovery.slice() },
+    rows: [ mkRow({kind:'repos'}) ],
+    stopReason:'', notes:'',
+  };
+}
+function mkRow(o){
+  return Object.assign({
+    kind:'palier', n:null, watts:null, level:null, plannedSec:0, sec:0, at:null,
+    hr:null, sys:null, dia:null, spo2:null, cad:null, rpe:null,
+    symptoms:[], touched:{}, open:false,
+  }, o);
+}
+
+function startTest(){
+  if (!cfg.dob){ alert('Renseignez d\'abord votre date de naissance dans les réglages.'); openSettings(); return; }
+  ensureAudio(); grabWake();
+  run.test = newTest();
+  run.state = 'repos'; run.palier = 0; run.recCued = {};
+  // Repos is a measurement, not a timed phase: sit still, take TA + FC, then go.
+  run.test.rows[0].open = true;
+  show('scRun'); paintRun(); renderQueue();
+  $('finishBtn').hidden = true;
+  openEntry(0);
+  tickLoop();
+}
+
+function nextPalier(){
+  const n = run.palier + 1;
+  const w = wattsFor(n);
+  const lvl = levelFor(w);
+  run.palier = n;
+  run.state = 'palier';
+  run.t0 = performance.now();
+  run.cued = false; run.lastTick = -1; run.cadCued = 0;
+  run.test.rows.push(mkRow({ kind:'palier', n, watts:w, level:lvl, plannedSec:cfg.palierSec, cad:null }));
+  cue('palier');
+  speak(L().vPalier(n, lvl));
+  paintRun();
+}
+
+function endPalier(){
+  const r = lastPalier();
+  if (r) r.sec = r.plannedSec;
+  nextPalier();
+}
+function lastPalier(){
+  for (let i = run.test.rows.length-1; i>=0; i--) if (run.test.rows[i].kind==='palier') return run.test.rows[i];
+  return null;
+}
+
+function doStop(){
+  if (run.state !== 'palier') { if (run.state==='repos') { alert('L\'épreuve n\'a pas commencé.'); return; } }
+  const r = lastPalier();
+  if (r) r.sec = Math.min(r.plannedSec, (performance.now()-run.t0)/1000);
+  run.state = 'recup';
+  run.stopAt = performance.now();
+  run.recCued = {};
+  cfg.recovery.forEach(m => run.test.rows.push(mkRow({ kind:'recovery', at:m })));
+  cue('end'); speak(L().vRecup);
+  askStopReason();
+  paintRun();
+  $('finishBtn').hidden = false;
+}
+
+function finishTest(){
+  run.state = 'done';
+  cancelAnimationFrame(run.raf); dropWake();
+  // Drop recovery rows that were never filled in, so the report shows what was
+  // actually measured rather than empty promises.
+  run.test.rows = run.test.rows.filter(r => r.kind!=='recovery' || r.hr!=null || r.sys!=null);
+  tests.push(run.test); saveTests();
+  const t = run.test; run.test = null; run.state = 'idle';
+  openReport(t.id);
+  // localStorage can be cleared by the browser without warning — offer the file now.
+  setTimeout(() => { if (confirm('Test enregistré. Télécharger la sauvegarde JSON maintenant ?')) downloadJSON(t); }, 400);
+}
+
+function abortTest(){
+  if (!confirm('Abandonner ce test ? Les mesures saisies seront perdues.')) return;
+  cancelAnimationFrame(run.raf); dropWake();
+  run.state = 'idle'; run.test = null;
+  closeEntry(); show('scHome'); renderHome(); renderQueue();
+}
+
+function tickLoop(){
+  if (run.state === 'palier'){
+    const elapsed = (performance.now()-run.t0)/1000;
+    const rem = cfg.palierSec - elapsed;
+    $('clock').textContent = mmss(rem);
+    $('barFill').style.width = Math.min(100, elapsed/cfg.palierSec*100)+'%';
+
+    // measurement window: cue once, and open the card for THIS palier
+    if (!run.cued && rem <= cfg.measureLead){
+      run.cued = true;
+      const r = lastPalier();
+      const wantBp = ((r.n-1) % Math.max(1,cfg.bpEvery)) === 0;
+      r.open = true; r.wantBp = wantBp;
+      cue('measure'); speak(wantBp ? L().vBp : L().vMeasure);
+      renderQueue();
+    }
+    const ts = Math.ceil(rem);
+    if (ts <= 5 && ts >= 1 && ts !== run.lastTick){ run.lastTick = ts; cue('tick'); }
+    if (rem <= 0) endPalier();
+  } else if (run.state === 'recup'){
+    const t = (performance.now()-run.stopAt)/1000;
+    $('clock').textContent = mmss(-t).replace('-','') === '0:00' ? mmss(t) : mmss(t);
+    $('clock').textContent = Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
+    const last = Math.max(...cfg.recovery)*60;
+    $('barFill').style.width = Math.min(100, t/last*100)+'%';
+    cfg.recovery.forEach(m => {
+      if (!run.recCued[m] && t >= m*60){
+        run.recCued[m] = true;
+        const r = run.test.rows.find(x => x.kind==='recovery' && x.at===m);
+        if (r){ r.open = true; r.wantBp = true; }
+        cue('measure'); speak(L().vMeasure);
+        renderQueue();
+      }
+    });
+  }
+  if (run.state !== 'idle' && run.state !== 'done') run.raf = requestAnimationFrame(tickLoop);
+}
+
+function paintRun(){
+  const t = L();
+  if (run.state==='repos'){
+    $('phaseName').textContent = t.repos;
+    $('clock').textContent = '—';
+    $('barFill').style.width = '0%';
+    $('tgtW').textContent = '—'; $('tgtLvl').textContent = '—';
+    $('palierNo').textContent = t.repos;
+    $('cadHint').textContent = 'Assis, sans pédaler. Saisissez tension et fréquence de repos, puis « Commencer le palier 1 ».';
+    $('measureBtn').textContent = 'Saisir le repos';
+    $('stopBtn').textContent = 'Commencer le palier 1';
+  } else if (run.state==='palier'){
+    const r = lastPalier();
+    $('phaseName').textContent = `${t.palier} ${r.n}`;
+    $('tgtW').innerHTML = r.watts + ' <small>W</small>';
+    $('tgtLvl').textContent = r.level==null ? '—' : r.level;
+    $('palierNo').textContent = `${t.palier} ${r.n} — ${r.watts} W`;
+    $('cadHint').textContent = r.level==null
+      ? 'Niveau inconnu pour cette charge : renseignez la table charge → niveau dans les réglages.'
+      : `Réglez la résistance sur ${r.level} et tenez la cadence.`;
+    $('measureBtn').textContent = 'Saisir une mesure';
+    $('stopBtn').textContent = 'STOP — j\'arrête';
+  } else if (run.state==='recup'){
+    $('phaseName').textContent = t.recup;
+    $('tgtW').textContent = '—'; $('tgtLvl').textContent = '—';
+    $('palierNo').textContent = t.recup;
+    $('cadHint').textContent = 'Assis, sans pédaler. Mesures à ' + cfg.recovery.join(', ') + ' min.';
+    $('measureBtn').textContent = 'Saisir une mesure';
+    $('stopBtn').textContent = 'STOP';
+  }
+  const unit = cfg.cadUnit==='kmh' ? 'km/h' : 'tr/min';
+  $('cadUnit').textContent = `${unit} · cible ${cfg.cadTarget}`;
+  $('cadLbl').textContent = t.cadence;
+}
+
+// The rider taps ± to say what the console reads. It is the only live number we
+// can get without a sensor, and per CONCEPT.md §3.2 it is the one that decides
+// whether the palier is worth anything: at fixed resistance, watts follow cadence.
+let liveCad = null;
+function setCad(v){
+  liveCad = Math.max(0, v);
+  $('cadVal').textContent = liveCad;
+  const low = liveCad < cfg.cadTarget - cfg.cadTol;
+  $('cadBox').classList.toggle('low', low);
+  const r = lastPalier();
+  if (r && run.state==='palier') r.cad = liveCad;
+  if (low && run.state==='palier'){
+    const now = performance.now();
+    if (now - run.cadCued > 8000){ run.cadCued = now; cue('cad'); speak(L().vCad); }
+  }
+}
+$('cadUpBtn').onclick = () => setCad((liveCad==null?cfg.cadTarget:liveCad)+1);
+$('cadDownBtn').onclick = () => setCad((liveCad==null?cfg.cadTarget:liveCad)-1);
+
+$('stopBtn').onclick = () => {
+  if (run.state==='repos'){ nextPalier(); setCad(cfg.cadTarget); return; }
+  if (run.state==='palier'){ if (confirm('Arrêter l\'effort et passer en récupération ?')) doStop(); return; }
+};
+$('finishBtn').onclick = finishTest;
+$('abortBtn').onclick = abortTest;
+$('measureBtn').onclick = () => { const i = firstOpen(); openEntry(i<0 ? run.test.rows.length-1 : i); };
+
+function askStopReason(){
+  const t = L();
+  const opts = [t.stopLegs, t.stopBreath, t.stopChest, t.stopTarget, t.stopOther];
+  const msg = 'Motif d\'arrêt ?\n' + opts.map((o,i)=>`${i+1}. ${o}`).join('\n') + '\n\nEntrez 1-5 :';
+  const a = prompt(msg, '1');
+  const i = parseInt(a,10);
+  run.test.stopReason = (i>=1 && i<=5) ? opts[i-1] : t.stopOther;
+}
+
+// ============================================================ entry queue
+function firstOpen(){ if (!run.test) return -1; return run.test.rows.findIndex(r => r.open); }
+function openCount(){ return run.test ? run.test.rows.filter(r=>r.open).length : 0; }
+function renderQueue(){
+  const n = openCount();
+  const b = $('queueBadge');
+  b.textContent = n; b.classList.toggle('on', n>0);
+}
+$('queueBtn').onclick = () => {
+  if (!run.test){ alert('Aucune épreuve en cours.'); return; }
+  const i = firstOpen();
+  openEntry(i<0 ? run.test.rows.length-1 : i);
+};
+
+// prefill: extrapolate from what is already recorded, so a typical entry is a
+// couple of taps rather than nine digits. An untouched field stays flagged as an
+// estimate and is not written into the test.
+function regress(pts){
+  const n = pts.length; if (n < 2) return null;
+  let sx=0, sy=0, sxx=0, sxy=0;
+  pts.forEach(([x,y]) => { sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; });
+  const d = n*sxx - sx*sx; if (!d) return null;
+  const b = (n*sxy - sx*sy)/d;
+  return { a:(sy - b*sx)/n, b };
+}
+function prefill(row){
+  const rows = run.test.rows;
+  const eff = rows.filter(r => r.kind!=='recovery' && r.hr!=null && r.watts!=null);
+  const anyHr = rows.filter(r => r.hr!=null);
+  const anySys = rows.filter(r => r.sys!=null);
+  const last = anyHr[anyHr.length-1], lastS = anySys[anySys.length-1];
+  const out = {};
+
+  if (row.kind === 'recovery'){
+    const peak = anyHr.length ? Math.max(...rows.filter(r=>r.kind!=='recovery'&&r.hr!=null).map(r=>r.hr)) : 130;
+    const drop = { 1:25, 2:38, 3:45, 5:55 }[row.at] ?? Math.min(60, 20+row.at*8);
+    out.hr = Math.max(50, peak - drop);
+    const restS = rows[0] && rows[0].sys!=null ? rows[0].sys : 130;
+    const peakS = anySys.length ? Math.max(...anySys.map(r=>r.sys)) : 190;
+    const f = { 1:.55, 2:.4, 3:.25, 5:.1 }[row.at] ?? .1;
+    out.sys = Math.round(restS + (peakS-restS)*f);
+    out.dia = lastS ? lastS.dia : 80;
+  } else if (row.kind === 'repos'){
+    out.hr = 70; out.sys = 130; out.dia = 80;
+  } else {
+    const rh = regress(eff.map(r=>[r.watts,r.hr]));
+    out.hr = rh ? Math.round(rh.a + rh.b*row.watts)
+           : last ? Math.round(last.hr + 12*((row.watts-(last.watts||0))/Math.max(1,cfg.stepW)))
+           : 90;
+    const rs = regress(rows.filter(r=>r.kind!=='recovery'&&r.sys!=null&&r.watts!=null).map(r=>[r.watts,r.sys]));
+    out.sys = rs ? Math.round(rs.a + rs.b*row.watts)
+            : lastS ? Math.round(lastS.sys + 10*((row.watts-(lastS.watts||0))/Math.max(1,cfg.stepW)))
+            : 140;
+    out.dia = lastS ? lastS.dia : 80;
+  }
+  const anyO = rows.filter(r=>r.spo2!=null);
+  out.spo2 = anyO.length ? anyO[anyO.length-1].spo2 : 98;
+  out.cad = liveCad!=null ? liveCad : cfg.cadTarget;
+  out.rpe = row.kind==='recovery' ? null : Math.min(20, 9 + (row.n||0));
+  out.hr = Math.max(40, Math.min(210, out.hr));
+  out.sys = Math.max(80, Math.min(280, out.sys));
+  out.dia = Math.max(40, Math.min(150, out.dia));
+  return out;
+}
+
+let entryIdx = -1, draft = null, draftTouched = null;
+const FIELDS = [
+  { k:'hr',   lbl:()=>L().fc,   unit:'bpm',  step:1, big:5, min:40,  max:220 },
+  { k:'sys',  lbl:()=>L().ta+' systolique', unit:'cmHg', step:5, big:10, min:80, max:300, cm:true },
+  { k:'dia',  lbl:()=>L().ta+' diastolique',unit:'cmHg', step:5, big:10, min:40, max:160, cm:true },
+  { k:'spo2', lbl:()=>L().spo2, unit:'%',    step:1, big:2, min:70,  max:100 },
+  { k:'cad',  lbl:()=>L().cadence, unit:()=>cfg.cadUnit==='kmh'?'km/h':'tr/min', step:1, big:5, min:0, max:200 },
+  { k:'rpe',  lbl:()=>L().rpe+' (Borg 6–20)', unit:'', step:1, big:2, min:6, max:20 },
+];
+const SYMPTOMS = ['sympChest','sympBreath','sympLegs','sympDizzy'];
+
+function openEntry(i){
+  if (!run.test || i<0 || i>=run.test.rows.length) return;
+  entryIdx = i;
+  const row = run.test.rows[i];
+  const pf = prefill(row);
+  draft = {}; draftTouched = {};
+  FIELDS.forEach(f => {
+    const cur = row[f.k];
+    if (cur != null && row.touched[f.k]){ draft[f.k] = cur; draftTouched[f.k] = true; }
+    else draft[f.k] = pf[f.k];
+  });
+  draft.symptoms = (row.symptoms||[]).slice();
+  paintEntry();
+  $('entrySheet').classList.add('open');
+}
+function closeEntry(){ $('entrySheet').classList.remove('open'); entryIdx = -1; }
+$('entryClose').onclick = closeEntry;
+$('entrySheet').addEventListener('click', e => { if (e.target === $('entrySheet')) closeEntry(); });
+
+function rowLabel(r){
+  const t = L();
+  if (r.kind==='repos') return t.repos;
+  if (r.kind==='recovery') return `${t.recup} ${r.at}′`;
+  return `${t.palier} ${r.n} — ${r.watts} W`;
+}
+function paintEntry(){
+  const row = run.test.rows[entryIdx];
+  $('entryTitle').textContent = rowLabel(row);
+  $('entrySub').textContent = row.open ? 'Mesure attendue' : 'Correction';
+
+  // card picker: jump between still-open measurements without leaving the sheet
+  const pick = $('cardPicker'); pick.innerHTML = '';
+  run.test.rows.forEach((r,i) => {
+    if (!r.open && i!==entryIdx) return;
+    const b = el('button','pill', rowLabel(r));
+    b.setAttribute('aria-pressed', i===entryIdx);
+    b.onclick = () => { commitDraft(); openEntry(i); };
+    pick.appendChild(b);
+  });
+  pick.style.display = pick.children.length > 1 ? 'flex' : 'none';
+
+  const box = $('steppers'); box.innerHTML = '';
+  FIELDS.forEach(f => {
+    if (f.k==='sys' || f.k==='dia'){ if (row.wantBp === false && !draftTouched[f.k]) { /* still show, just unemphasised */ } }
+    const d = el('div','step');
+    const top = el('div','top');
+    top.appendChild(el('div','name', typeof f.lbl==='function'?f.lbl():f.lbl));
+    const est = el('div','est'+(draftTouched[f.k]?' conf':''), draftTouched[f.k]?L().conf:L().est);
+    top.appendChild(est); d.appendChild(top);
+
+    const r = el('div','stepRow');
+    const mk = (txt, dv) => { const b = el('button',null,txt); b.onclick = () => bump(f, dv); return b; };
+    r.appendChild(mk('−'+f.big, -f.big));
+    r.appendChild(mk('−', -f.step));
+    const v = el('div','v'+(draftTouched[f.k]?'':' est'));
+    const unit = typeof f.unit==='function'?f.unit():f.unit;
+    v.innerHTML = `<span>${f.cm ? cmHg(draft[f.k]) : (draft[f.k]==null?'—':draft[f.k])}</span>` + (unit?`<small>${unit}</small>`:'');
+    r.appendChild(v);
+    r.appendChild(mk('+', f.step));
+    r.appendChild(mk('+'+f.big, f.big));
+    d.appendChild(r);
+    box.appendChild(d);
+  });
+
+  const sr = $('sympRow'); sr.innerHTML = '';
+  SYMPTOMS.forEach(k => {
+    const b = el('button','pill', L()[k]);
+    b.setAttribute('aria-pressed', draft.symptoms.includes(k));
+    b.onclick = () => {
+      const i = draft.symptoms.indexOf(k);
+      if (i<0) draft.symptoms.push(k); else draft.symptoms.splice(i,1);
+      paintEntry();
+    };
+    sr.appendChild(b);
+  });
+}
+function bump(f, dv){
+  const cur = draft[f.k]==null ? (f.min+f.max)/2 : draft[f.k];
+  draft[f.k] = Math.max(f.min, Math.min(f.max, Math.round(cur + dv)));
+  draftTouched[f.k] = true;      // touching a field is what turns it into a measurement
+  paintEntry();
+}
+function commitDraft(){
+  if (entryIdx < 0 || !draft) return;
+  const row = run.test.rows[entryIdx];
+  FIELDS.forEach(f => {
+    if (draftTouched[f.k]){ row[f.k] = draft[f.k]; row.touched[f.k] = true; }
+  });
+  row.symptoms = draft.symptoms.slice();
+  // A card closes only once something real was entered on it.
+  if (Object.keys(draftTouched).length) row.open = false;
+  renderQueue();
+}
+$('entrySave').onclick = () => { commitDraft(); closeEntry(); };
+
+// ============================================================ metrics
+// Every formula here is read off a real Swiss ergometry report and verified to
+// reproduce its printed values exactly — 220-age (not Tanaka) for the FMT,
+// METs = 4 x W/kg, METs theorique = 18 - 0.15 x age (Morris), and the double
+// product computed on the systolic in cmHg.
+function metrics(t){
+  const age = ageAt(t.profile.dob, t.date);
+  const w = t.profile.weight;
+  const rows = t.rows;
+  const eff = rows.filter(r => r.kind!=='recovery');
+  const paliers = rows.filter(r => r.kind==='palier');
+  const ridden = paliers.filter(r => r.sec > 0);
+  const peakRow = ridden[ridden.length-1] || null;
+  const peakW = peakRow ? peakRow.watts : null;
+
+  const hrEff = eff.filter(r => r.hr!=null).map(r => r.hr);
+  const peakHR = hrEff.length ? Math.max(...hrEff) : null;
+  const restRow = rows.find(r => r.kind==='repos') || null;
+
+  const fmt = age==null ? null : 220 - age;
+  const sousMax = fmt==null ? null : Math.round(0.85*fmt);
+  const wkg = (peakW!=null && w) ? peakW/w : null;
+  const mets = wkg==null ? null : 4*wkg;
+  const metsTheo = age==null ? null : 18 - 0.15*age;
+  const pctFMT = (peakHR!=null && fmt) ? peakHR/fmt*100 : null;
+
+  const dps = eff.map(dblProd).filter(v => v!=null);
+  const maxDP = dps.length ? Math.max(...dps) : null;
+  const sysAll = eff.filter(r => r.sys!=null);
+  const peakSys = sysAll.length ? Math.max(...sysAll.map(r=>r.sys)) : null;
+  const peakDia = sysAll.length ? Math.max(...sysAll.map(r=>r.dia).filter(v=>v!=null)) : null;
+
+  // total work: watts × seconds actually ridden
+  const kJ = ridden.reduce((s,r) => s + r.watts*r.sec/1000, 0);
+  const totalSec = ridden.reduce((s,r) => s + r.sec, 0);
+
+  // HR-vs-load regression over the paliers → slope and the submaximal PWC
+  // indices. A home test is symptom-limited and will usually stop short of
+  // 93 % FMT, so peak-based numbers understate you; these do not.
+  const hrPts = paliers.filter(r => r.hr!=null && r.watts!=null).map(r => [r.watts, r.hr]);
+  const rg = regress(hrPts);
+  const pwc = hr => {
+    if (!rg || rg.b <= 0) return null;
+    const v = (hr - rg.a)/rg.b;
+    if (!isFinite(v) || v <= 0) return null;
+    // refuse a wild extrapolation: no more than one increment past the last palier
+    const maxOk = (peakW||0) + cfg.stepW;
+    return v > maxOk*1.35 ? null : v;
+  };
+  const sysPts = paliers.filter(r => r.sys!=null && r.watts!=null).map(r => [r.watts, r.sys]);
+  const rgS = regress(sysPts);
+
+  // a systolic that FALLS while the load rises is the one pattern worth shouting about
+  let sysDrop = null;
+  const seq = paliers.filter(r => r.sys!=null);
+  for (let i=1;i<seq.length;i++){
+    const d = seq[i].sys - seq[i-1].sys;
+    if (d <= -10 && (sysDrop==null || d < sysDrop.d)) sysDrop = { d, from:seq[i-1], to:seq[i] };
+  }
+
+  const rec = {};
+  rows.filter(r => r.kind==='recovery' && r.hr!=null).forEach(r => {
+    rec[r.at] = peakHR!=null ? peakHR - r.hr : null;
+  });
+
+  // cadence discipline: which paliers were ridden below target
+  const cadLow = paliers.filter(r => r.cad!=null && r.cad < (t.proto.cadTarget - (cfg.cadTol||2)));
+
+  return { age, fmt, sousMax, peakW, peakRow, peakHR, restRow, wkg, mets, metsTheo, pctFMT,
+           maxDP, peakSys, peakDia, kJ, totalSec, rg, rgS, sysDrop,
+           pwc130:pwc(130), pwc150:pwc(150), pwc170:pwc(170), rec, cadLow, paliers, rows };
+}
+
+// ============================================================ charts
+// Inline SVG, no library. Palette validated with the dataviz validator against
+// both chart surfaces. Every series is direct-labelled as well as legended,
+// which is also the required relief for the two light-mode hues under 3:1.
+const SER = n => `var(--series-${n})`;
+let tipEl = null;
+function chartShell(w, h, pad){
+  return { w, h, pad, parts:[], x:null, y:null };
+}
+function axes(c, xs, ys, xlab, ylab, xfmt, yfmt){
+  const {w,h,pad} = c;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const padY = (y1-y0)*0.12 || 5;
+  const ylo = Math.floor((y0-padY)/10)*10, yhi = Math.ceil((y1+padY)/10)*10;
+  const xlo = x0 === x1 ? x0-1 : x0, xhi = x0 === x1 ? x0+1 : x1;
+  c.x = v => pad.l + (v-xlo)/(xhi-xlo)*(w-pad.l-pad.r);
+  c.y = v => h-pad.b - (v-ylo)/(yhi-ylo)*(h-pad.t-pad.b);
+  const ticksY = 5, ticksX = Math.min(7, new Set(xs).size);
+  for (let i=0;i<=ticksY;i++){
+    const v = ylo + (yhi-ylo)*i/ticksY, y = c.y(v);
+    c.parts.push(`<line x1="${pad.l}" y1="${y}" x2="${w-pad.r}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`);
+    c.parts.push(`<text x="${pad.l-6}" y="${y+3.5}" text-anchor="end" font-size="9.5" fill="var(--ink-mute)">${yfmt?yfmt(v):Math.round(v)}</text>`);
+  }
+  const uniq = [...new Set(xs)].sort((a,b)=>a-b);
+  const stepEvery = Math.max(1, Math.ceil(uniq.length/ticksX));
+  uniq.forEach((v,i) => {
+    if (i % stepEvery && i !== uniq.length-1) return;
+    c.parts.push(`<text x="${c.x(v)}" y="${h-pad.b+13}" text-anchor="middle" font-size="9.5" fill="var(--ink-mute)">${xfmt?xfmt(v):v}</text>`);
+  });
+  c.parts.push(`<line x1="${pad.l}" y1="${h-pad.b}" x2="${w-pad.r}" y2="${h-pad.b}" stroke="var(--line)" stroke-width="1"/>`);
+  c.parts.push(`<text x="${w-pad.r}" y="${h-2}" text-anchor="end" font-size="9.5" fill="var(--ink-mute)">${xlab}</text>`);
+  c.parts.push(`<text x="${pad.l-6}" y="${pad.t-6}" text-anchor="end" font-size="9.5" fill="var(--ink-mute)">${ylab}</text>`);
+}
+function serie(c, pts, color, label, opts){
+  opts = opts || {};
+  if (!pts.length) return;
+  const d = pts.map((p,i) => (i?'L':'M') + c.x(p[0]).toFixed(1) + ',' + c.y(p[1]).toFixed(1)).join(' ');
+  c.parts.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${opts.dash?` stroke-dasharray="${opts.dash}"`:''}/>`);
+  pts.forEach(p => {
+    // 2px surface ring so overlapping markers stay countable
+    c.parts.push(`<circle cx="${c.x(p[0]).toFixed(1)}" cy="${c.y(p[1]).toFixed(1)}" r="4.5" fill="${color}" stroke="var(--bg-card)" stroke-width="2"/>`);
+    c.parts.push(`<circle class="hit" cx="${c.x(p[0]).toFixed(1)}" cy="${c.y(p[1]).toFixed(1)}" r="13" fill="transparent" data-tip="${(opts.tip?opts.tip(p):`${p[0]} → ${p[1]}`).replace(/"/g,'&quot;')}"/>`);
+  });
+  if (label){
+    const last = pts[pts.length-1];
+    c.parts.push(`<text x="${(c.x(last[0])+7).toFixed(1)}" y="${(c.y(last[1])+3.5).toFixed(1)}" font-size="10" font-weight="600" fill="${color}">${label}</text>`);
+  }
+}
+function hline(c, v, txt){
+  const y = c.y(v);
+  c.parts.push(`<line x1="${c.pad.l}" y1="${y}" x2="${c.w-c.pad.r}" y2="${y}" stroke="var(--ink-mute)" stroke-width="1" stroke-dasharray="3 3" opacity=".8"/>`);
+  c.parts.push(`<text x="${c.pad.l+3}" y="${y-4}" font-size="9" fill="var(--ink-mute)">${txt}</text>`);
+}
+function renderChart(c){ return `<svg viewBox="0 0 ${c.w} ${c.h}" role="img">${c.parts.join('')}</svg>`; }
+
+function figure(title, sub, svg, legend){
+  const lg = legend && legend.length
+    ? `<div class="legend">${legend.map(([col,name])=>`<span><i style="background:${col}"></i>${name}</span>`).join('')}</div>` : '';
+  return `<figure><figcaption>${title}</figcaption>${sub?`<div class="figsub">${sub}</div>`:''}<div class="chart">${svg}<div class="tip"></div></div>${lg}</figure>`;
+}
+// one hover layer for every chart on the page
+function wireTips(root){
+  root.querySelectorAll('.chart').forEach(box => {
+    const tip = box.querySelector('.tip');
+    box.querySelectorAll('.hit').forEach(h => {
+      const show = e => {
+        tip.textContent = h.dataset.tip;
+        const br = box.getBoundingClientRect(), pr = h.getBoundingClientRect();
+        tip.style.left = Math.max(2, Math.min(br.width - tip.offsetWidth - 2, pr.left - br.left + pr.width/2 - tip.offsetWidth/2)) + 'px';
+        tip.style.top = (pr.top - br.top - tip.offsetHeight - 6) + 'px';
+        tip.classList.add('on');
+      };
+      h.addEventListener('mouseenter', show);
+      h.addEventListener('touchstart', show, {passive:true});
+      h.addEventListener('mouseleave', () => tip.classList.remove('on'));
+    });
+    box.addEventListener('mouseleave', () => tip.classList.remove('on'));
+  });
+}
+
+// ============================================================ report
+let shownId = null;
+function openReport(id){
+  shownId = id;
+  const t = tests.find(x => x.id===id);
+  if (!t){ show('scHome'); return; }
+  const m = metrics(t);
+  const Lx = L();
+  const prev = tests.filter(x => x.id!==id && new Date(x.date) < new Date(t.date))
+                    .sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,2);
+
+  let h = '';
+  h += `<div class="card"><h2>${t.modality==='clinic-upright'?'Épreuve clinique':'Épreuve à domicile'}</h2>
+    <h3 style="margin-bottom:2px">${dateStr(t.date)}</h3>
+    <div class="muted">${t.profile.weight} kg · ${t.profile.height} cm · ${m.age} ans${t.profile.treatment?` · ${esc(t.profile.treatment)}`:''}</div>
+    ${t.bike?`<div class="tiny">${esc(t.bike)}${t.modality==='home-recumbent'?' — semi-allongé':''}</div>`:''}
+  </div>`;
+
+  // headline block, in the report's own order
+  h += `<div class="card"><h2>Résultats</h2><div class="hero">
+    <div class="stat"><div class="lbl">Watts / kg</div><div class="num">${nf(m.wkg,2)}</div><div class="sub">${m.peakW??'—'} W · ${t.profile.weight} kg</div></div>
+    <div class="stat"><div class="lbl">METs</div><div class="num">${nf(m.mets,2)}</div><div class="sub">théorique ${nf(m.metsTheo,2)}</div></div>
+    <div class="stat"><div class="lbl">FC max</div><div class="num">${m.peakHR??'—'}</div><div class="sub">${nf(m.pctFMT,0)} % de la FMT ${m.fmt??'—'}</div></div>
+    <div class="stat"><div class="lbl">${Lx.dp} max</div><div class="num">${m.maxDP??'—'}</div><div class="sub">TAs ${cmHg(m.peakSys)} × FC</div></div>
+  </div>
+  <dl class="kv">
+    <dt>Fréquence cardiaque max. théorique</dt><dd><b>${m.fmt??'—'}</b> · sous-max. ${m.sousMax??'—'}</dd>
+    <dt>Durée d'effort</dt><dd>${mmss(m.totalSec)} · ${nf(m.kJ,0)} kJ</dd>
+    <dt>Motif d'arrêt</dt><dd>${esc(t.stopReason||'—')}</dd>
+    ${m.pwc170!=null?`<dt>PWC 170 / 150 / 130</dt><dd>${nf(m.pwc170,0)} / ${nf(m.pwc150,0)} / ${nf(m.pwc130,0)} W</dd>`:''}
+    ${m.rg?`<dt>Pente FC / charge</dt><dd>${nf(m.rg.b*25,1)} bpm par 25 W</dd>`:''}
+    ${m.rgS?`<dt>Pente TAs / charge</dt><dd>${nf(m.rgS.b*25,1)} mmHg par 25 W</dd>`:''}
+    ${Object.keys(m.rec).length?`<dt>Récupération FC</dt><dd>${cfg.recovery.filter(x=>m.rec[x]!=null).map(x=>`−${m.rec[x]} à ${x}′`).join(' · ')}</dd>`:''}
+  </dl>`;
+
+  // descriptive flags — threshold always stated, never a diagnosis
+  const flags = [];
+  if (m.peakSys!=null && m.peakSys>210) flags.push(['warn',`TAs ${cmHg(m.peakSys)} cmHg au pic (souvent signalée au-delà de 21 cmHg).`]);
+  if (m.sysDrop) flags.push(['bad',`TAs en baisse de ${Math.abs(m.sysDrop.d)/10} cmHg entre ${m.sysDrop.from.watts} et ${m.sysDrop.to.watts} W, alors que la charge augmentait. À signaler à votre médecin.`]);
+  if (m.rec[1]!=null && m.rec[1]<12) flags.push(['warn',`Récupération à 1 min : −${m.rec[1]} bpm (une baisse inférieure à 12 bpm est habituellement relevée).`]);
+  if (m.pctFMT!=null && m.pctFMT<85) flags.push(['','Test sous-maximal (${x} % de la FMT) : les valeurs de pic sous-estiment votre aptitude. Comparez plutôt le PWC et la pente FC/charge.'.replace('${x}',nf(m.pctFMT,0))]);
+  if (m.cadLow.length) flags.push(['warn',`Cadence sous la cible sur ${m.cadLow.length} palier(s) : ${m.cadLow.map(r=>r.watts+' W').join(', ')}. À résistance fixe, la puissance suit la cadence — ces paliers valent moins que leur charge affichée.`]);
+  const noBp = m.paliers.filter(r=>r.sys==null).length;
+  if (noBp) flags.push(['',`${noBp} palier(s) sans tension mesurée — les graphiques laissent le trou visible plutôt que de l'interpoler.`]);
+  if (flags.length) h += `<div class="sep"></div>` + flags.map(([c,txt])=>`<div class="note ${c}">${txt}</div>`).join('');
+  h += `</div>`;
+
+  // ---- the table, in the report's column order
+  h += `<div class="card"><h2>Paliers</h2><div class="tscroll"><table><thead><tr>
+    <th>${Lx.palier} (W)</th><th>Niv.</th><th>Durée</th><th>${Lx.ta}<br>(cmHg)</th><th>${Lx.fc}</th>
+    <th>${Lx.dp}<br>(TAs × FC)</th><th>${Lx.spo2}<br>%</th><th>Cad.</th><th>Borg</th><th>Symptômes</th></tr></thead><tbody>`;
+  const grp = (txt) => `<tr class="grp"><td colspan="10">${txt}</td></tr>`;
+  h += grp(Lx.repos);
+  t.rows.filter(r=>r.kind==='repos').forEach(r => { h += rowHtml(r,'—','—'); });
+  h += grp(Lx.palier);
+  t.rows.filter(r=>r.kind==='palier').forEach(r => {
+    h += rowHtml(r, r.watts, r.level==null?'—':r.level, mmss(r.sec), r.sec < r.plannedSec);
+  });
+  const recs = t.rows.filter(r=>r.kind==='recovery');
+  if (recs.length){ h += grp(Lx.recup); recs.forEach(r => { h += rowHtml(r, r.at+'′','—','—'); }); }
+  h += `</tbody></table></div>
+    <p class="tiny" style="margin-top:8px">Tension en cmHg comme sur le rapport du cardiologue :
+    « 13,5/8 » = 135/80 mmHg. Double produit = TAs en cmHg × FC.</p>
+    <p class="tiny">Aucune colonne ECG : cette épreuve n'en comporte pas, et c'est là que se
+    trouve la valeur diagnostique de l'épreuve clinique.</p></div>`;
+
+  // ---- charts
+  h += `<div class="card"><h2>Graphiques</h2>`;
+  h += chartHR(t, m, prev);
+  h += chartTA(t, m);
+  h += chartTime(t, m);
+  h += `</div>`;
+
+  // ---- comparison with the previous tests
+  if (prev.length){
+    h += `<div class="card"><h2>Comparaison</h2><div class="tscroll"><table><thead><tr>
+      <th>Date</th><th>Type</th><th>W max</th><th>W/kg</th><th>METs</th><th>FC max</th><th>% FMT</th><th>DP max</th><th>PWC170</th></tr></thead><tbody>`;
+    [t, ...prev].forEach(x => {
+      const mm = metrics(x);
+      h += `<tr><td>${new Date(x.date).toLocaleDateString(L().code,{month:'short',year:'numeric'})}</td>
+        <td>${x.modality==='clinic-upright'?'clinique':'domicile'}</td>
+        <td>${mm.peakW??'—'}</td><td>${nf(mm.wkg,2)}</td><td>${nf(mm.mets,2)}</td>
+        <td>${mm.peakHR??'—'}</td><td>${nf(mm.pctFMT,0)}</td><td>${mm.maxDP??'—'}</td>
+        <td>${mm.pwc170==null?'—':nf(mm.pwc170,0)}</td></tr>`;
+    });
+    h += `</tbody></table></div>
+    <p class="tiny" style="margin-top:8px">Une épreuve clinique se fait sur vélo <b>droit</b>,
+    celle-ci sur un <b>semi-allongé</b> : la position change le recrutement musculaire et la
+    tension. Les valeurs absolues ne sont pas interchangeables — ce qui se compare, c'est
+    l'évolution de la pente FC/charge, du PWC et de la récupération.</p></div>`;
+  }
+
+  $('reportBody').innerHTML = h;
+  $('printHead').innerHTML = `<h3 style="margin-bottom:2px">Épreuve d'effort sur bicyclette — ${dateStr(t.date)}</h3>
+    <div style="font-size:9pt">${t.profile.weight} kg / ${t.profile.height} cm · ${m.age} ans · ${esc(t.profile.treatment||'—')}</div>
+    <div style="font-size:9pt">Auto-mesure à domicile, vélo semi-allongé, sans ECG. Non diagnostique.</div><hr>`;
+  wireTips($('reportBody'));
+  show('scReport');
+}
+function rowHtml(r, w, lvl, dur, short){
+  const dp = dblProd(r);
+  const symp = (r.symptoms||[]).map(k=>L()[k]).join(', ');
+  return `<tr><td>${w}</td><td>${lvl}</td><td${short?' class="flag"':''}>${dur??'—'}</td>
+    <td>${taStr(r)}</td><td>${r.hr??'—'}</td><td>${dp??'—'}</td><td>${r.spo2??'—'}</td>
+    <td>${r.cad??'—'}</td><td>${r.rpe??'—'}</td><td style="text-align:left">${symp||''}</td></tr>`;
+}
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function chartHR(t, m, prev){
+  const cur = m.paliers.filter(r=>r.hr!=null&&r.watts!=null).map(r=>[r.watts,r.hr]);
+  if (cur.length < 2) return '';
+  const series = [{ pts:cur, col:SER(1), name:new Date(t.date).toLocaleDateString(L().code,{month:'short',year:'numeric'}) }];
+  prev.forEach((p,i) => {
+    const pts = p.rows.filter(r=>r.kind==='palier'&&r.hr!=null&&r.watts!=null).map(r=>[r.watts,r.hr]);
+    if (pts.length>1) series.push({ pts, col:SER(i+2), name:new Date(p.date).toLocaleDateString(L().code,{month:'short',year:'numeric'}), dash:'5 4' });
+  });
+  const xs = series.flatMap(s=>s.pts.map(p=>p[0]));
+  const ys = series.flatMap(s=>s.pts.map(p=>p[1])).concat(m.fmt?[m.fmt]:[]);
+  const c = chartShell(520, 260, {l:34,r:52,t:16,b:26});
+  axes(c, xs, ys, 'W', 'bpm');
+  if (m.fmt) hline(c, m.fmt, `FMT ${m.fmt}`);
+  if (m.sousMax) hline(c, m.sousMax, `sous-max. ${m.sousMax}`);
+  series.forEach(s => serie(c, s.pts, s.col, s.name, { dash:s.dash, tip:p=>`${p[0]} W · ${p[1]} bpm` }));
+  return figure('Fréquence cardiaque selon la charge',
+    'La comparaison la plus utile : à charge égale, une FC plus haute qu\'au test précédent.',
+    renderChart(c), series.map(s=>[s.col,s.name]));
+}
+function chartTA(t, m){
+  const sys = m.paliers.filter(r=>r.sys!=null).map(r=>[r.watts,r.sys]);
+  const dia = m.paliers.filter(r=>r.dia!=null).map(r=>[r.watts,r.dia]);
+  if (sys.length < 2) return '';
+  const c = chartShell(520, 240, {l:34,r:58,t:16,b:26});
+  axes(c, sys.map(p=>p[0]), sys.concat(dia).map(p=>p[1]), 'W', 'cmHg', null, v=>cmHg(v));
+  serie(c, sys, SER(1), 'systolique', { tip:p=>`${p[0]} W · ${cmHg(p[1])} cmHg` });
+  serie(c, dia, SER(3), 'diastolique', { tip:p=>`${p[0]} W · ${cmHg(p[1])} cmHg` });
+  return figure('Tension artérielle selon la charge',
+    'Les paliers sans mesure laissent un trou : rien n\'est interpolé.',
+    renderChart(c), [[SER(1),'systolique'],[SER(3),'diastolique']]);
+}
+function chartTime(t, m){
+  // effort then recovery on one time axis — the single most legible picture
+  let acc = 0; const pts = [];
+  const rest = t.rows.find(r=>r.kind==='repos');
+  if (rest && rest.hr!=null) pts.push([0, rest.hr]);
+  m.paliers.forEach(r => { acc += r.sec; if (r.hr!=null) pts.push([acc/60, r.hr]); });
+  const stopT = acc/60;
+  const recPts = [];
+  t.rows.filter(r=>r.kind==='recovery'&&r.hr!=null).forEach(r => recPts.push([stopT + r.at, r.hr]));
+  if (pts.length < 2) return '';
+  const c = chartShell(520, 230, {l:34,r:52,t:16,b:26});
+  axes(c, pts.concat(recPts).map(p=>p[0]), pts.concat(recPts).map(p=>p[1]), 'min', 'bpm', null, null);
+  if (recPts.length){
+    const x = c.x(stopT);
+    c.parts.push(`<line x1="${x}" y1="${c.pad.t}" x2="${x}" y2="${c.h-c.pad.b}" stroke="var(--ink-mute)" stroke-width="1" stroke-dasharray="3 3"/>`);
+    c.parts.push(`<text x="${x+3}" y="${c.pad.t+8}" font-size="9" fill="var(--ink-mute)">STOP</text>`);
+  }
+  serie(c, pts, SER(1), 'effort', { tip:p=>`${nf(p[0],1)} min · ${p[1]} bpm` });
+  if (recPts.length) serie(c, [pts[pts.length-1]].concat(recPts), SER(2), 'récup.', { tip:p=>`${nf(p[0],1)} min · ${p[1]} bpm` });
+  return figure('Fréquence cardiaque dans le temps',
+    'La forme de la descente après STOP est la lecture la plus parlante du test.',
+    renderChart(c), recPts.length?[[SER(1),'effort'],[SER(2),'récupération']]:null);
+}
+
+// ============================================================ export / import
+function dl(name, text, mime){
+  const b = new Blob([text], {type:mime||'application/json'});
+  const u = URL.createObjectURL(b);
+  const a = document.createElement('a');
+  a.href = u; a.download = name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(u), 4000);
+}
+const stamp = iso => new Date(iso).toISOString().slice(0,10);
+function downloadJSON(t){ dl(`effort-${stamp(t.date)}.json`, JSON.stringify(t,null,2)); }
+function downloadCSV(t){
+  const m = metrics(t);
+  const head = ['type','palier_W','niveau','duree_s','TAs_mmHg','TAd_mmHg','FC','double_produit','SpO2','cadence','borg','symptomes'];
+  const lines = [head.join(';')];
+  t.rows.forEach(r => lines.push([
+    r.kind, r.kind==='recovery'? r.at+'min' : (r.watts??''), r.level??'', Math.round(r.sec||0),
+    r.sys??'', r.dia??'', r.hr??'', dblProd(r)??'', r.spo2??'', r.cad??'', r.rpe??'',
+    (r.symptoms||[]).map(k=>L()[k]).join('|')
+  ].join(';')));
+  lines.push('');
+  lines.push(['# date',t.date].join(';'));
+  lines.push(['# age',m.age,'poids_kg',t.profile.weight,'taille_cm',t.profile.height].join(';'));
+  lines.push(['# W_max',m.peakW,'W_par_kg',nf(m.wkg,2),'METs',nf(m.mets,2),'METs_theo',nf(m.metsTheo,2)].join(';'));
+  lines.push(['# FMT',m.fmt,'sous_max',m.sousMax,'FC_max',m.peakHR,'pct_FMT',nf(m.pctFMT,0)].join(';'));
+  lines.push(['# motif_arret',t.stopReason].join(';'));
+  dl(`effort-${stamp(t.date)}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
+}
+$('jsonBtn').onclick = () => { const t = tests.find(x=>x.id===shownId); if (t) downloadJSON(t); };
+$('csvBtn').onclick  = () => { const t = tests.find(x=>x.id===shownId); if (t) downloadCSV(t); };
+$('printBtn').onclick = () => window.print();
+$('exportAllBtn').onclick = () => dl(`effort-tout-${new Date().toISOString().slice(0,10)}.json`,
+  JSON.stringify({ app:APP_VERSION, exported:new Date().toISOString(), settings:cfg, tests }, null, 2));
+$('importBtn').onclick = () => $('importFile').click();
+$('importFile').onchange = e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try{
+      const o = JSON.parse(rd.result);
+      const incoming = Array.isArray(o) ? o : (o.tests || [o]);
+      let n = 0;
+      incoming.forEach(t => {
+        if (!t || !t.rows) return;
+        if (!t.id) t.id = 'T'+Math.random().toString(36).slice(2);
+        if (tests.some(x => x.id===t.id)) return;   // never silently duplicate
+        tests.push(t); n++;
+      });
+      tests.sort((a,b)=>new Date(a.date)-new Date(b.date));
+      saveTests(); renderHome();
+      alert(n ? `${n} test(s) importé(s).` : 'Rien à importer (déjà présent ou format inconnu).');
+    }catch(err){ alert('Fichier illisible : '+err.message); }
+    e.target.value = '';
+  };
+  rd.readAsText(f);
+};
+$('delBtn').onclick = () => {
+  const t = tests.find(x=>x.id===shownId); if (!t) return;
+  if (!confirm(`Supprimer l'épreuve du ${dateStr(t.date)} ? Cette action est définitive.`)) return;
+  tests = tests.filter(x=>x.id!==shownId); saveTests(); show('scHome'); renderHome();
+};
+$('backHomeBtn').onclick = () => { show('scHome'); renderHome(); };
+
+// ============================================================ home
+function show(id){
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id===id));
+  window.scrollTo(0,0);
+}
+function renderHome(){
+  $('firstRun').hidden = !!cfg.seenIntro;
+  const age = cfg.dob ? ageAt(cfg.dob, new Date().toISOString()) : null;
+  const fmt = age==null?null:220-age, mt = age==null?null:18-0.15*age;
+  const sum = $('homeSummary'); sum.innerHTML = '';
+  const add = (k,v) => { sum.appendChild(el('dt',null,k)); const d = el('dd'); d.innerHTML = v; sum.appendChild(d); };
+  if (age!=null){
+    add('Âge', age+' ans');
+    add('FC max. théorique', `<b>${fmt}</b> · sous-max. ${Math.round(.85*fmt)}`);
+    add('METs théorique', nf(mt,2));
+    const target = cfg.weight ? Math.round(mt/4*cfg.weight) : null;
+    if (target) add('Charge « normale pour l\'âge »', `≈ <b>${target} W</b>`);
+  } else {
+    add('Profil', 'à renseigner dans les réglages');
+  }
+  $('treatNow').value = cfg.treatment || '';
+  $('weightNow').value = cfg.weight || '';
+  const last = wattsFor(1), n = 8;
+  $('protoLine').textContent = `Protocole : repos, puis ${cfg.startW} W et +${cfg.stepW} W toutes les `
+    + `${Math.round(cfg.palierSec/60)} min. Signal de mesure ${cfg.measureLead} s avant la fin du palier. `
+    + `Récupération à ${cfg.recovery.join(', ')} min.`;
+
+  const hl = $('histList'); hl.innerHTML = '';
+  if (!tests.length){ hl.appendChild(el('p','muted','Aucune épreuve enregistrée. Importez le rapport de votre cardiologue pour avoir une base de comparaison.')); }
+  tests.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(t => {
+    const m = metrics(t);
+    const d = el('div','hist');
+    const lft = el('div');
+    lft.appendChild(el('div','d', dateStr(t.date)));
+    lft.appendChild(el('div','m', `${m.peakW??'—'} W · ${nf(m.wkg,2)} W/kg · ${nf(m.mets,2)} METs · FC ${m.peakHR??'—'}`));
+    d.appendChild(lft);
+    d.appendChild(el('span','tag', t.modality==='clinic-upright'?'clinique':'domicile'));
+    d.onclick = () => openReport(t.id);
+    hl.appendChild(d);
+  });
+}
+$('firstOk').onclick = () => { cfg.seenIntro = true; save(); renderHome(); };
+$('startBtn').onclick = () => {
+  const w = Number($('weightNow').value);
+  if (w) { cfg.weight = w; }
+  cfg.treatment = $('treatNow').value; save();
+  startTest();
+};
+
+// ============================================================ settings
+function openSettings(){
+  if (run.state==='palier' || run.state==='recup'){
+    if (!confirm('Une épreuve est en cours. Ouvrir les réglages ne l\'arrête pas, mais évitez de changer le protocole maintenant. Continuer ?')) return;
+  }
+  paintSettings();
+  $('setSheet').classList.add('open');
+}
+$('gearBtn').onclick = openSettings;
+$('setClose').onclick = () => closeSettings();
+$('setDone').onclick = () => closeSettings();
+$('setSheet').addEventListener('click', e => { if (e.target===$('setSheet')) closeSettings(); });
+function closeSettings(){
+  readSettings(); save();
+  $('setSheet').classList.remove('open');
+  renderHome(); if (run.state!=='idle') paintRun();
+}
+function paintSettings(){
+  $('fDob').value = cfg.dob || '';
+  $('fSex').value = cfg.sex; $('fWeight').value = cfg.weight; $('fHeight').value = cfg.height;
+  $('fTreat').value = cfg.treatment || '';
+  $('fStartW').value = cfg.startW; $('fStepW').value = cfg.stepW; $('fPalierSec').value = cfg.palierSec;
+  $('fLead').value = cfg.measureLead; $('fBpEvery').value = cfg.bpEvery;
+  $('fRecov').value = cfg.recovery.join(', ');
+  $('fCadUnit').value = cfg.cadUnit; $('fCadTarget').value = cfg.cadTarget; $('fCadTol').value = cfg.cadTol;
+  const age = cfg.dob ? ageAt(cfg.dob, new Date().toISOString()) : null;
+  $('fmtLine').textContent = age==null ? 'La date de naissance est nécessaire : FMT et METs théoriques en dépendent, et ils changent chaque année.'
+    : `À ${age} ans : FMT = 220 − ${age} = ${220-age} · sous-max. ${Math.round(.85*(220-age))} · METs théorique ${nf(18-.15*age,2)}. Recalculé à la date de chaque test.`;
+  document.querySelectorAll('#consoleRow .pill').forEach(b => b.setAttribute('aria-pressed', !!cfg.csl[b.dataset.k]));
+  document.querySelectorAll('#themeRow .pill').forEach(b => b.setAttribute('aria-pressed', b.dataset.theme===cfg.theme));
+  document.querySelectorAll('#langRow .pill').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang===cfg.lang));
+  $('pTone').setAttribute('aria-pressed', cfg.tone);
+  $('pVoice').setAttribute('aria-pressed', cfg.voice);
+  paintLevelMap();
+}
+function paintLevelMap(){
+  const box = $('levelMap'); box.innerHTML = '';
+  const grid = el('div','three');
+  for (let n=1; n<=10; n++){
+    const w = wattsFor(n);
+    const lab = el('label','fld');
+    lab.appendChild(el('span', null, w+' W'));
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.min = 0; inp.max = 30; inp.step = 1;
+    inp.value = cfg.levelMap[String(w)] ?? '';
+    inp.placeholder = 'niv.';
+    inp.oninput = () => {
+      if (inp.value==='') delete cfg.levelMap[String(w)];
+      else cfg.levelMap[String(w)] = Number(inp.value);
+      save();
+    };
+    lab.appendChild(inp);
+    grid.appendChild(lab);
+  }
+  box.appendChild(grid);
+}
+function readSettings(){
+  cfg.dob = $('fDob').value;
+  cfg.sex = $('fSex').value;
+  cfg.weight = Number($('fWeight').value)||cfg.weight;
+  cfg.height = Number($('fHeight').value)||cfg.height;
+  cfg.treatment = $('fTreat').value;
+  cfg.startW = Number($('fStartW').value)||cfg.startW;
+  cfg.stepW = Number($('fStepW').value)||cfg.stepW;
+  cfg.palierSec = Number($('fPalierSec').value)||cfg.palierSec;
+  cfg.measureLead = Math.min(cfg.palierSec-5, Number($('fLead').value)||cfg.measureLead);
+  cfg.bpEvery = Math.max(1, Number($('fBpEvery').value)||1);
+  const rec = ($('fRecov').value||'').split(/[,;\s]+/).map(Number).filter(v=>v>0);
+  if (rec.length) cfg.recovery = [...new Set(rec)].sort((a,b)=>a-b);
+  cfg.cadUnit = $('fCadUnit').value;
+  cfg.cadTarget = Number($('fCadTarget').value)||cfg.cadTarget;
+  cfg.cadTol = Number($('fCadTol').value)||cfg.cadTol;
+}
+document.querySelectorAll('#consoleRow .pill').forEach(b => b.onclick = () => {
+  cfg.csl[b.dataset.k] = !cfg.csl[b.dataset.k];
+  b.setAttribute('aria-pressed', cfg.csl[b.dataset.k]); save();
+});
+document.querySelectorAll('#themeRow .pill').forEach(b => b.onclick = () => {
+  cfg.theme = b.dataset.theme; applyTheme(); save(); paintSettings();
+  if (shownId) openReport(shownId);            // charts read theme vars at build time
+});
+document.querySelectorAll('#langRow .pill').forEach(b => b.onclick = () => {
+  cfg.lang = b.dataset.lang; document.documentElement.lang = cfg.lang; save(); paintSettings();
+  renderHome(); if (run.state!=='idle') paintRun();
+  if (shownId) openReport(shownId);
+});
+$('pTone').onclick = () => { cfg.tone = !cfg.tone; $('pTone').setAttribute('aria-pressed',cfg.tone); save(); if (cfg.tone){ ensureAudio(); if (actx) CUES.measure(); } };
+$('pVoice').onclick = () => { cfg.voice = !cfg.voice; $('pVoice').setAttribute('aria-pressed',cfg.voice); save(); if (cfg.voice) speak(L().vMeasure); };
+
+function applyTheme(){
+  document.documentElement.dataset.theme = cfg.theme;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  if (bg) document.querySelector('meta[name="theme-color"]').setAttribute('content', bg);
+}
+
+// ============================================================ update check (from Atmen)
+// iOS Safari can serve a stale Home-Screen copy for days. Read our own source
+// past the cache once per launch; the sessionStorage flag is what stops this
+// from ever becoming a reload loop.
+const RELOAD_KEY = 'tec-reloaded';
+function checkForUpdate(){
+  try{ if (sessionStorage.getItem(RELOAD_KEY)) return; }catch(e){ return; }
+  fetch(location.pathname + '?_=' + Date.now(), { cache:'no-store' })
+    .then(r => r.ok ? r.text() : null)
+    .then(src => {
+      const m = src && src.match(/APP_VERSION = '([^']+)'/);
+      if (!m || m[1] === APP_VERSION) return;
+      try{ sessionStorage.setItem(RELOAD_KEY, m[1]); }catch(e){ return; }
+      location.replace(location.pathname + '?v=' + encodeURIComponent(m[1]));
+    })
+    .catch(()=>{});
+}
+
+// don't lose a test in progress to a stray back-swipe or tab close
+window.addEventListener('beforeunload', e => {
+  if (run.state==='palier' || run.state==='recup'){ e.preventDefault(); e.returnValue = ''; }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if ($('entrySheet').classList.contains('open')) closeEntry();
+  else if ($('setSheet').classList.contains('open')) closeSettings();
+});
+
+// ============================================================ boot
+load();
+if (!LANGS[cfg.lang]) cfg.lang = 'fr';
+document.documentElement.lang = cfg.lang;
+applyTheme();
+renderHome();
+renderQueue();
+checkForUpdate();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Personal medical data — never commit. Atmen is published to GitHub Pages and
+# this repo will likely be public too; a stress-test report contains name, date
+# of birth, diagnosis and medication.
+REFERENCE-*.md
+*.doc
+*.docx
+*.pdf
+reports/
+data/

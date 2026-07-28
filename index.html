@@ -714,7 +714,7 @@ function lastPalier(){
 }
 
 function doStop(){
-  if (run.state !== 'palier') { if (run.state==='repos') { alert('L\'épreuve n\'a pas commencé.'); return; } }
+  if (run.state !== 'palier') return;
   const r = lastPalier();
   if (r) r.sec = Math.min(r.plannedSec, (performance.now()-run.t0)/1000);
   run.state = 'recup';
@@ -768,7 +768,7 @@ function tickLoop(){
     if (rem <= 0) endPalier();
   } else if (run.state === 'recup'){
     const t = (performance.now()-run.stopAt)/1000;
-    $('clock').textContent = mmss(-t).replace('-','') === '0:00' ? mmss(t) : mmss(t);
+    // counts up from STOP, so the recovery minutes read directly off the clock
     $('clock').textContent = Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
     const last = Math.max(...cfg.recovery)*60;
     $('barFill').style.width = Math.min(100, t/last*100)+'%';
@@ -975,7 +975,6 @@ function paintEntry(){
 
   const box = $('steppers'); box.innerHTML = '';
   FIELDS.forEach(f => {
-    if (f.k==='sys' || f.k==='dia'){ if (row.wantBp === false && !draftTouched[f.k]) { /* still show, just unemphasised */ } }
     const d = el('div','step');
     const top = el('div','top');
     top.appendChild(el('div','name', typeof f.lbl==='function'?f.lbl():f.lbl));
@@ -1069,12 +1068,14 @@ function metrics(t){
   const hrPts = paliers.filter(r => r.hr!=null && r.watts!=null).map(r => [r.watts, r.hr]);
   const rg = regress(hrPts);
   const pwc = hr => {
-    if (!rg || rg.b <= 0) return null;
+    if (!rg || rg.b <= 0 || peakHR==null) return null;
+    // Only report a PWC whose target heart rate the test actually approached.
+    // Extrapolating PWC170 from a test that peaked at 148 bpm would read as a
+    // measurement while being pure line-fitting well past the data — the number
+    // would look authoritative and be worthless.
+    if (hr > peakHR + 10) return null;
     const v = (hr - rg.a)/rg.b;
-    if (!isFinite(v) || v <= 0) return null;
-    // refuse a wild extrapolation: no more than one increment past the last palier
-    const maxOk = (peakW||0) + cfg.stepW;
-    return v > maxOk*1.35 ? null : v;
+    return (isFinite(v) && v > 0) ? v : null;
   };
   const sysPts = paliers.filter(r => r.sys!=null && r.watts!=null).map(r => [r.watts, r.sys]);
   const rgS = regress(sysPts);
@@ -1092,8 +1093,11 @@ function metrics(t){
     rec[r.at] = peakHR!=null ? peakHR - r.hr : null;
   });
 
-  // cadence discipline: which paliers were ridden below target
-  const cadLow = paliers.filter(r => r.cad!=null && r.cad < (t.proto.cadTarget - (cfg.cadTol||2)));
+  // cadence discipline: which paliers were ridden below target. Read from the
+  // test's own protocol — an imported or older test may have used another.
+  const tgtCad = (t.proto && t.proto.cadTarget) || null;
+  const cadLow = tgtCad==null ? []
+    : paliers.filter(r => r.cad!=null && r.cad < tgtCad - (cfg.cadTol||2));
 
   return { age, fmt, sousMax, peakW, peakRow, peakHR, restRow, wkg, mets, metsTheo, pctFMT,
            maxDP, peakSys, peakDia, kJ, totalSec, rg, rgS, sysDrop,
@@ -1210,10 +1214,10 @@ function openReport(id){
     <dt>Fréquence cardiaque max. théorique</dt><dd><b>${m.fmt??'—'}</b> · sous-max. ${m.sousMax??'—'}</dd>
     <dt>Durée d'effort</dt><dd>${mmss(m.totalSec)} · ${nf(m.kJ,0)} kJ</dd>
     <dt>Motif d'arrêt</dt><dd>${esc(t.stopReason||'—')}</dd>
-    ${m.pwc170!=null?`<dt>PWC 170 / 150 / 130</dt><dd>${nf(m.pwc170,0)} / ${nf(m.pwc150,0)} / ${nf(m.pwc130,0)} W</dd>`:''}
+    ${pwcLine(m)}
     ${m.rg?`<dt>Pente FC / charge</dt><dd>${nf(m.rg.b*25,1)} bpm par 25 W</dd>`:''}
     ${m.rgS?`<dt>Pente TAs / charge</dt><dd>${nf(m.rgS.b*25,1)} mmHg par 25 W</dd>`:''}
-    ${Object.keys(m.rec).length?`<dt>Récupération FC</dt><dd>${cfg.recovery.filter(x=>m.rec[x]!=null).map(x=>`−${m.rec[x]} à ${x}′`).join(' · ')}</dd>`:''}
+    ${recLine(t, m)}
   </dl>`;
 
   // descriptive flags — threshold always stated, never a diagnosis
@@ -1221,7 +1225,12 @@ function openReport(id){
   if (m.peakSys!=null && m.peakSys>210) flags.push(['warn',`TAs ${cmHg(m.peakSys)} cmHg au pic (souvent signalée au-delà de 21 cmHg).`]);
   if (m.sysDrop) flags.push(['bad',`TAs en baisse de ${Math.abs(m.sysDrop.d)/10} cmHg entre ${m.sysDrop.from.watts} et ${m.sysDrop.to.watts} W, alors que la charge augmentait. À signaler à votre médecin.`]);
   if (m.rec[1]!=null && m.rec[1]<12) flags.push(['warn',`Récupération à 1 min : −${m.rec[1]} bpm (une baisse inférieure à 12 bpm est habituellement relevée).`]);
-  if (m.pctFMT!=null && m.pctFMT<85) flags.push(['','Test sous-maximal (${x} % de la FMT) : les valeurs de pic sous-estiment votre aptitude. Comparez plutôt le PWC et la pente FC/charge.'.replace('${x}',nf(m.pctFMT,0))]);
+  if (m.pctFMT!=null && m.pctFMT<85){
+    const alt = m.pwc130!=null || m.pwc150!=null
+      ? 'Comparez plutôt le PWC et la pente FC/charge, qui ne dépendent pas de la façon dont vous avez poussé.'
+      : 'Comparez plutôt la pente FC/charge, et la FC palier par palier à charge égale.';
+    flags.push(['', `Épreuve sous-maximale (${nf(m.pctFMT,0)} % de la FMT) : les valeurs de pic sous-estiment votre aptitude. ${alt}`]);
+  }
   if (m.cadLow.length) flags.push(['warn',`Cadence sous la cible sur ${m.cadLow.length} palier(s) : ${m.cadLow.map(r=>r.watts+' W').join(', ')}. À résistance fixe, la puissance suit la cadence — ces paliers valent moins que leur charge affichée.`]);
   const noBp = m.paliers.filter(r=>r.sys==null).length;
   if (noBp) flags.push(['',`${noBp} palier(s) sans tension mesurée — les graphiques laissent le trou visible plutôt que de l'interpoler.`]);
@@ -1279,6 +1288,23 @@ function openReport(id){
     <div style="font-size:9pt">Auto-mesure à domicile, vélo semi-allongé, sans ECG. Non diagnostique.</div><hr>`;
   wireTips($('reportBody'));
   show('scReport');
+}
+// Only the PWC values whose target HR the test actually approached exist; say
+// plainly why the others are absent rather than printing an em dash.
+function pwcLine(m){
+  const have = [[170,m.pwc170],[150,m.pwc150],[130,m.pwc130]].filter(([,v]) => v!=null);
+  if (!have.length) return '';
+  const missing = [170,150,130].filter(h => m.peakHR!=null && h > m.peakHR+10);
+  return `<dt>PWC ${have.map(([h])=>h).join(' / ')}</dt>`
+    + `<dd>${have.map(([,v])=>nf(v,0)).join(' / ')} W</dd>`
+    + (missing.length ? `<dt class="tiny">PWC ${missing.join(' / ')}</dt><dd class="tiny">FC non approchée</dd>` : '');
+}
+// Recovery minutes come from the test's own protocol, not today's settings —
+// an imported or older test may have used a different schedule.
+function recLine(t, m){
+  const mins = t.rows.filter(r => r.kind==='recovery' && m.rec[r.at]!=null).map(r => r.at);
+  if (!mins.length) return '';
+  return `<dt>Récupération FC</dt><dd>${mins.map(x=>`−${m.rec[x]} à ${x}′`).join(' · ')}</dd>`;
 }
 function rowHtml(r, w, lvl, dur, short){
   const dp = dblProd(r);
@@ -1428,7 +1454,6 @@ function renderHome(){
   }
   $('treatNow').value = cfg.treatment || '';
   $('weightNow').value = cfg.weight || '';
-  const last = wattsFor(1), n = 8;
   $('protoLine').textContent = `Protocole : repos, puis ${cfg.startW} W et +${cfg.stepW} W toutes les `
     + `${Math.round(cfg.palierSec/60)} min. Signal de mesure ${cfg.measureLead} s avant la fin du palier. `
     + `Récupération à ${cfg.recovery.join(', ')} min.`;

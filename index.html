@@ -292,10 +292,15 @@
     <div id="histList"></div>
     <div class="sep"></div>
     <div class="btns">
-      <button class="btn ghost sm" id="importBtn">Importer un fichier</button>
+      <button class="btn ghost sm" id="pasteBtn">Coller un rapport</button>
+      <button class="btn ghost sm" id="importBtn">Importer un JSON</button>
       <button class="btn ghost sm" id="exportAllBtn">Exporter tout</button>
     </div>
-    <input type="file" id="importFile" accept=".json,application/json" hidden>
+    <input type="file" id="importFile" accept=".json,.txt,application/json,text/plain" hidden>
+    <p class="tiny" style="margin-top:6px">Pour un rapport de cardiologue : ouvrez-le dans Word
+    (ou le PDF), sélectionnez tout, copiez, et utilisez <b>Coller un rapport</b>. Un fichier
+    .doc ou .pdf ne peut pas être lu directement — il faudrait une bibliothèque externe, et
+    l'application n'en utilise aucune.</p>
     <p class="tiny" style="margin-top:8px">Les tests ne vivent que dans ce navigateur.
     Un navigateur peut effacer ses données sans avertir : <b>exportez après chaque test</b>.</p>
   </div>
@@ -381,6 +386,30 @@
     <p class="tiny" style="margin-top:8px">Le chronomètre continue de tourner. Une valeur
     laissée sur son estimation reste marquée comme telle et n'entre pas dans le rapport
     comme une mesure.</p>
+  </div>
+</div>
+
+<!-- ============ COLLER UN RAPPORT ============ -->
+<div class="sheet" id="pasteSheet" role="dialog" aria-modal="true" aria-label="Coller un rapport">
+  <div class="panel">
+    <div class="panelHead">
+      <div>
+        <h2 style="margin:0">Coller un rapport</h2>
+        <div class="tiny">Épreuve clinique — pour comparaison</div>
+      </div>
+      <button class="closeX" id="pasteClose" aria-label="Fermer">&#10005;</button>
+    </div>
+
+    <p class="tiny" style="margin-bottom:8px">Ouvrez le rapport dans Word ou le lecteur PDF,
+    <b>tout sélectionner</b> (Ctrl+A), <b>copier</b> (Ctrl+C), puis coller ici. Depuis Word
+    le tableau arrive en colonnes propres et la lecture est fiable ; depuis un PDF elle l'est
+    moins — d'où l'aperçu corrigeable avant d'enregistrer.</p>
+
+    <label class="fld"><span>Texte du rapport</span>
+      <textarea id="pasteText" style="min-height:130px" placeholder="Collez ici le texte complet du rapport…"></textarea></label>
+    <div class="btns"><button class="btn sm" id="parseBtn">Analyser</button></div>
+
+    <div id="pasteResult"></div>
   </div>
 </div>
 
@@ -476,7 +505,7 @@
 <script>
 (() => {
 'use strict';
-const APP_VERSION = 'v0.1';
+const APP_VERSION = 'v0.2';
 document.querySelectorAll('.ver').forEach(el => { el.textContent = APP_VERSION; });
 
 // ============================================================ i18n
@@ -1402,6 +1431,261 @@ $('csvBtn').onclick  = () => { const t = tests.find(x=>x.id===shownId); if (t) d
 $('printBtn').onclick = () => window.print();
 $('exportAllBtn').onclick = () => dl(`effort-tout-${new Date().toISOString().slice(0,10)}.json`,
   JSON.stringify({ app:APP_VERSION, exported:new Date().toISOString(), settings:cfg, tests }, null, 2));
+// ---------------------------------------------------------- paste a clinical report
+// A .doc is OLE2 and a .pdf needs a parser library; neither is readable in a
+// dependency-free page. Pasted text is, and it works identically for Word, PDF
+// and a plain transcription — so that is the import path.
+//
+// The tension arterielle token ("14,5/8") is the anchor: every measured row has
+// exactly one, and nothing else in the document looks like it. From each anchor
+// we read backwards for the row's label and forwards for FC / double produit /
+// SpO2, which survives both a clean Word table and the column-scrambled text a
+// .doc-to-text conversion produces.
+// Accents are the first thing an encoding mishap destroys: Word's "save as text"
+// writes Windows-1252, a PDF copy can mangle them, and "Après" then arrives as
+// "Apr?s". So every pattern that needs an accented letter uses "." for it, and
+// month names are matched after folding diacritics away.
+const FR_MONTHS = ['janvier','f.vrier','mars','avril','mai','juin','juillet','ao.t','septembre','octobre','novembre','d.cembre'];
+const fold = s => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const toNum = s => Number(String(s).replace(',', '.'));
+const TA_RE = /^(\d{1,3}(?:[.,]\d)?)\/(\d{1,3}(?:[.,]\d)?)$/;
+function monthIndex(word){
+  const w = fold(word);
+  let i = FR_MONTHS.findIndex(p => new RegExp('^'+p+'$','i').test(w));
+  if (i < 0) i = FR_MONTHS.findIndex(p => new RegExp('^'+p.slice(0,4)).test(w) && w.length >= 3);
+  return i;
+}
+
+function parseReport(text){
+  const out = { profile:{}, date:null, stopReason:'', rows:[], warnings:[], printed:{} };
+  const T = String(text||'').replace(/\r/g,'').replace(/ /g,' ');
+  if (!T.trim()){ out.warnings.push('Rien à analyser.'); return out; }
+
+  // ---- header fields
+  let m;
+  if ((m = T.match(/naissance\s*:?\s*(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/i)))
+    out.profile.dob = `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  if ((m = T.match(/([\d.,]+)\s*kg\s*\/\s*([\d.,]+)\s*cm/i))){
+    out.profile.weight = toNum(m[1]); out.profile.height = toNum(m[2]);
+  }
+  if ((m = T.match(/Traitement\s*:?\s*([^\n\t]+)/i)))
+    out.profile.treatment = m[1].trim().replace(/\s{2,}.*$/,'').replace(/M[ée]decin.*$/i,'').trim();
+  if ((m = T.match(/(?:^|\n|\t)\s*Date\s*:?\s*(\d{1,2})\s+([^\s\d:]{3,12})\s+(\d{4})/))){
+    const mi = monthIndex(m[2]);
+    if (mi >= 0) out.date = `${m[3]}-${String(mi+1).padStart(2,'0')}-${m[1].padStart(2,'0')}T10:00:00.000Z`;
+  }
+  if (!out.date && (m = T.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/g))){
+    // fall back to any date that is not the date of birth
+    const dobM = out.profile.dob ? out.profile.dob.slice(0,4) : '';
+    const cand = m.map(s => s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/)).find(x => x[3] !== dobM);
+    if (cand) out.date = `${cand[3]}-${cand[2].padStart(2,'0')}-${cand[1].padStart(2,'0')}T10:00:00.000Z`;
+  }
+  if ((m = T.match(/Motif\s+d'?\s*arr.t\s*:?\s*([^\n\t]+)/i))) out.stopReason = m[1].trim();
+  // printed values, so the preview can show whether we reproduce them
+  if ((m = T.match(/Watts?\s*\/\s*kg\s*[=:]\s*([\d.,]+)/i)))         out.printed.wkg = toNum(m[1]);
+  if ((m = T.match(/METs\s*[=:]\s*([\d.,]+)/i)))                      out.printed.mets = toNum(m[1]);
+  if ((m = T.match(/METs\s+th.orique\s*[=:]?\s*([\d.,]+)/i)))         out.printed.metsTheo = toNum(m[1]);
+  if ((m = T.match(/th.orique\s*:?\s*(\d{2,3})\s*(?:\n|\t|Sous)/i)))  out.printed.fmt = toNum(m[1]);
+  if ((m = T.match(/Sous[-\s]?max\.?\s*:?\s*(\d{2,3})/i)))            out.printed.sousMax = toNum(m[1]);
+
+  // ---- split effort from recovery
+  const cut = T.search(/Apr.s\s*\n?\s*l\s*'?\s*effort/i);
+  const effortPart = cut >= 0 ? T.slice(0, cut) : T;
+  const recovPart  = cut >= 0 ? T.slice(cut) : '';
+  if (cut < 0) out.warnings.push('Bloc « Après l\'effort » non trouvé : aucune récupération importée.');
+
+  // ---- effort rows, anchored on the TA token
+  const tok = effortPart.split(/[\t\n]+|\s{2,}| (?=\d)|(?<=\d) /).map(s => s.trim()).filter(Boolean);
+  const isInt = s => /^\d{1,4}$/.test(s);
+  for (let i=0;i<tok.length;i++){
+    const ta = tok[i].match(TA_RE);
+    if (!ta) continue;
+    const sys = Math.round(toNum(ta[1])*10), dia = Math.round(toNum(ta[2])*10);
+    if (sys < 60 || sys > 320 || dia < 30 || dia > 200) continue;   // not a blood pressure
+
+    // backwards for the label: "Repos", or a watts value
+    let kind = null, watts = null, n = null, sec = null;
+    for (let j=i-1;j>=Math.max(0,i-6);j--){
+      const s = tok[j];
+      if (/^Repos$/i.test(s)){ kind = 'repos'; break; }
+      const dm = s.match(/^(\d{1,2})\s*'$/);            // "2'"
+      if (dm){ sec = toNum(dm[1])*60; continue; }
+      if (isInt(s)){
+        const v = Number(s);
+        if (v>=20 && v<=500 && v%5===0){ kind='palier'; watts=v; break; }
+      }
+    }
+    if (!kind){ out.warnings.push(`Ligne TA ${ta[1]}/${ta[2]} : palier non identifié, ignorée.`); continue; }
+
+    // forwards for FC, double produit, SpO2 — consumed in that order
+    let hr=null, dp=null, spo2=null;
+    for (let j=i+1;j<Math.min(tok.length,i+7);j++){
+      const s = tok[j];
+      if (TA_RE.test(s)) break;                          // next row started
+      if (!isInt(s)) continue;
+      const v = Number(s);
+      if (hr==null && v>=40 && v<=220){ hr = v; continue; }
+      if (dp==null && v>=400 && v<=8000){ dp = v; continue; }
+      if (spo2==null && v>=80 && v<=100){ spo2 = v; continue; }
+    }
+    out.rows.push({ kind, watts, sec, hr, sys, dia, spo2, dp });
+  }
+  // number the paliers and infer the duration where it was not printed
+  let k = 0;
+  out.rows.forEach(r => { if (r.kind==='palier'){ r.n = ++k; if (!r.sec) r.sec = 120; } });
+  if (!out.rows.length) out.warnings.push('Aucun palier reconnu. Vérifiez que le tableau a bien été copié.');
+
+  // ---- recovery: minute labels, TA tokens and FC values are often grouped in
+  // separate columns, so match them positionally rather than row by row.
+  if (recovPart){
+    const rt = recovPart.split(/[\t\n]+|\s{2,}/).map(s=>s.trim()).filter(Boolean);
+    const tas = [], ints = [];
+    rt.forEach(s => {
+      const t2 = s.match(TA_RE);
+      if (t2){ const sy=Math.round(toNum(t2[1])*10), di=Math.round(toNum(t2[2])*10);
+               if (sy>=60&&sy<=320) tas.push([sy,di]); return; }
+      if (/^\d{1,3}$/.test(s)) ints.push(Number(s));
+    });
+    const mins = ints.filter(v => v>=1 && v<=15);
+    const hrs  = ints.filter(v => v>=40 && v<=220);
+    const uniqMins = [...new Set(mins)].slice(0, Math.max(tas.length, hrs.length) || 3);
+    const list = uniqMins.length ? uniqMins : [1,3,5];
+    list.forEach((mn,ix) => {
+      const ta = tas[ix], hr = hrs[ix];
+      if (!ta && hr==null) return;
+      out.rows.push({ kind:'recovery', at:mn, hr:hr??null, sys:ta?ta[0]:null, dia:ta?ta[1]:null, spo2:null, dp:null });
+    });
+    // Only complain when a value is genuinely missing. Extra integers are
+    // expected — the SpO2 column sits in the same 80–100 range as a plausible
+    // heart rate, so counting them as a mismatch would cry wolf every time.
+    const used = Math.min(tas.length, hrs.length);
+    if (used < list.length)
+      out.warnings.push(`Récupération : ${list.length} temps annoncés mais seulement ${tas.length} tension(s) et ${hrs.length} fréquence(s) reconnues — complétez dans l'aperçu.`);
+    else if (hrs.length > list.length)
+      out.warnings.push(`Récupération : des nombres supplémentaires ont été ignorés (probablement la colonne SpO₂). Vérifiez l'appariement dans l'aperçu.`);
+  }
+  return out;
+}
+
+// build a test object from the (possibly corrected) preview
+function pastedToTest(p){
+  const t = {
+    id: 'CLIN-' + (p.date ? p.date.slice(0,10) : Date.now()),
+    date: p.date || new Date().toISOString(),
+    app: 'paste', modality: 'clinic-upright', bike: 'Bicyclette ergométrique (cabinet)',
+    profile: { dob: p.profile.dob || cfg.dob, sex: cfg.sex,
+               weight: p.profile.weight || cfg.weight, height: p.profile.height || cfg.height,
+               treatment: p.profile.treatment || '' },
+    proto: { startW: null, stepW: null, palierSec: 120, cadUnit: null, cadTarget: null,
+             recovery: p.rows.filter(r=>r.kind==='recovery').map(r=>r.at) },
+    stopReason: p.stopReason || '', notes: 'Importé par collage depuis le rapport imprimé.',
+    rows: [],
+  };
+  const ws = p.rows.filter(r=>r.kind==='palier').map(r=>r.watts).filter(v=>v!=null);
+  if (ws.length){ t.proto.startW = ws[0]; if (ws.length>1) t.proto.stepW = ws[1]-ws[0]; }
+  p.rows.forEach(r => {
+    const row = mkRow({ kind:r.kind, n:r.n??null, watts:r.watts??null, level:null,
+      plannedSec: r.kind==='palier' ? 120 : 0, sec: r.kind==='palier' ? (r.sec||120) : 0,
+      at: r.at??null, hr:r.hr??null, sys:r.sys??null, dia:r.dia??null, spo2:r.spo2??null });
+    ['hr','sys','dia','spo2'].forEach(k => { if (row[k]!=null) row.touched[k] = true; });
+    row.open = false;
+    t.rows.push(row);
+  });
+  return t;
+}
+
+let pasted = null;
+$('pasteBtn').onclick = () => { $('pasteResult').innerHTML = ''; $('pasteText').value = ''; pasted = null; $('pasteSheet').classList.add('open'); };
+$('pasteClose').onclick = () => $('pasteSheet').classList.remove('open');
+$('pasteSheet').addEventListener('click', e => { if (e.target===$('pasteSheet')) $('pasteSheet').classList.remove('open'); });
+$('parseBtn').onclick = () => {
+  pasted = parseReport($('pasteText').value);
+  renderPastePreview();
+};
+function renderPastePreview(){
+  const p = pasted, box = $('pasteResult');
+  box.innerHTML = '';
+  const warn = el('div');
+  p.warnings.forEach(w => warn.appendChild(el('div','note warn', w)));
+  box.appendChild(warn);
+
+  box.appendChild(el('div','sep'));
+  box.appendChild(el('h3', null, 'Aperçu — corrigez si nécessaire'));
+
+  // editable header
+  const hdr = el('div','two');
+  const fld = (lbl, val, type, on) => {
+    const l = el('label','fld'); l.appendChild(el('span',null,lbl));
+    const i = document.createElement('input'); i.type = type||'text'; i.value = val??'';
+    i.oninput = () => on(i.value); l.appendChild(i); return l;
+  };
+  hdr.appendChild(fld('Date de l\'épreuve', p.date?p.date.slice(0,10):'', 'date', v => { p.date = v ? v+'T10:00:00.000Z' : null; }));
+  hdr.appendChild(fld('Date de naissance', p.profile.dob||'', 'date', v => { p.profile.dob = v; }));
+  hdr.appendChild(fld('Poids (kg)', p.profile.weight, 'number', v => { p.profile.weight = Number(v)||null; }));
+  hdr.appendChild(fld('Taille (cm)', p.profile.height, 'number', v => { p.profile.height = Number(v)||null; }));
+  box.appendChild(hdr);
+  box.appendChild(fld('Traitement', p.profile.treatment||'', 'text', v => { p.profile.treatment = v; }));
+  box.appendChild(fld('Motif d\'arrêt', p.stopReason||'', 'text', v => { p.stopReason = v; }));
+
+  // editable rows
+  const wrapT = el('div','tscroll');
+  const tb = document.createElement('table');
+  tb.innerHTML = `<thead><tr><th></th><th>Type</th><th>W / min</th><th>TAs</th><th>TAd</th><th>FC</th><th>SpO₂</th><th>DP lu</th><th>DP calc.</th></tr></thead>`;
+  const body = document.createElement('tbody');
+  p.rows.forEach((r, ix) => {
+    const tr = document.createElement('tr');
+    const cell = (child) => { const td = document.createElement('td'); td.appendChild(child); tr.appendChild(td); };
+    const keep = document.createElement('input'); keep.type='checkbox'; keep.checked = r.keep !== false;
+    keep.onchange = () => { r.keep = keep.checked; };
+    cell(keep);
+    const ty = document.createElement('td'); ty.textContent = r.kind==='repos'?'Repos':r.kind==='recovery'?'Récup.':'Palier'; ty.style.textAlign='left'; tr.appendChild(ty);
+    const num = (key, w) => { const i = document.createElement('input'); i.type='number'; i.value = r[key]??''; i.style.width = w||'62px'; i.style.padding='4px 6px'; i.style.fontSize='.82rem';
+      i.oninput = () => { r[key] = i.value===''?null:Number(i.value); recalcDP(tr, r); }; return i; };
+    cell(r.kind==='recovery' ? num('at') : num('watts'));
+    cell(num('sys')); cell(num('dia')); cell(num('hr')); cell(num('spo2'));
+    const dpRead = document.createElement('td'); dpRead.textContent = r.dp??'—'; tr.appendChild(dpRead);
+    const dpCalc = document.createElement('td'); dpCalc.className='dpc'; tr.appendChild(dpCalc);
+    body.appendChild(tr);
+    recalcDP(tr, r);
+  });
+  tb.appendChild(body); wrapT.appendChild(tb); box.appendChild(wrapT);
+  box.appendChild(el('p','tiny','« DP lu » est le double produit imprimé sur le rapport, « DP calc. » celui que l\'application recalcule (TAs en cmHg × FC). S\'ils diffèrent, une valeur a été mal lue.'));
+
+  // does the header block reproduce?
+  if (Object.keys(p.printed).length){
+    const pr = el('div','note');
+    pr.innerHTML = 'Valeurs imprimées détectées : '
+      + Object.entries(p.printed).map(([k,v])=>`${k} ${nf(v,2)}`).join(' · ')
+      + '. Elles seront comparées à celles recalculées après enregistrement.';
+    box.appendChild(pr);
+  }
+
+  box.appendChild(el('div','sep'));
+  const b = el('button','btn','Enregistrer cette épreuve');
+  b.onclick = savePasted;
+  box.appendChild(b);
+}
+function recalcDP(tr, r){
+  const c = tr.querySelector('.dpc');
+  const v = (r.sys!=null && r.hr!=null) ? Math.round(r.sys/10*r.hr) : null;
+  c.textContent = v??'—';
+  c.className = 'dpc' + (v!=null && r.dp!=null && Math.abs(v-r.dp) > 2 ? ' flag' : '');
+}
+function savePasted(){
+  const p = { ...pasted, rows: pasted.rows.filter(r => r.keep !== false) };
+  if (!p.rows.length){ alert('Aucune ligne à enregistrer.'); return; }
+  if (!p.profile.dob && !cfg.dob){ alert('Date de naissance manquante : la FMT et les METs théoriques en dépendent.'); return; }
+  let k = 0; p.rows.forEach(r => { if (r.kind==='palier') r.n = ++k; });
+  const t = pastedToTest(p);
+  if (tests.some(x => x.id === t.id)) t.id += '-' + Math.random().toString(36).slice(2,6);
+  tests.push(t);
+  tests.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  saveTests();
+  $('pasteSheet').classList.remove('open');
+  renderHome();
+  openReport(t.id);
+}
+
 $('importBtn').onclick = () => $('importFile').click();
 $('importFile').onchange = e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
@@ -1420,7 +1704,23 @@ $('importFile').onchange = e => {
       tests.sort((a,b)=>new Date(a.date)-new Date(b.date));
       saveTests(); renderHome();
       alert(n ? `${n} test(s) importé(s).` : 'Rien à importer (déjà présent ou format inconnu).');
-    }catch(err){ alert('Fichier illisible : '+err.message); }
+    }catch(err){
+      // Not JSON. A .doc is a binary OLE2 container and a .pdf needs a parser
+      // library, so neither can be read here — but if the file is text, hand it
+      // straight to the paste parser instead of just complaining.
+      const looksBinary = /^[\x00-\x08\x0e-\x1f]/.test(String(rd.result).slice(0,8)) || /%PDF|\xD0\xCF\x11\xE0/.test(String(rd.result).slice(0,8));
+      if (!looksBinary && String(rd.result).length > 40){
+        $('pasteText').value = rd.result;
+        $('pasteSheet').classList.add('open');
+        pasted = parseReport(rd.result); renderPastePreview();
+      } else {
+        alert('Ce fichier n\'est pas lisible directement.\n\n'
+          + 'Un .doc ou un .pdf ne peut pas être décodé sans bibliothèque externe, et '
+          + 'l\'application n\'en utilise aucune.\n\n'
+          + 'Ouvrez le rapport dans Word ou votre lecteur PDF, sélectionnez tout (Ctrl+A), '
+          + 'copiez (Ctrl+C), puis utilisez « Coller un rapport ».');
+      }
+    }
     e.target.value = '';
   };
   rd.readAsText(f);
@@ -1600,6 +1900,7 @@ window.addEventListener('beforeunload', e => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if ($('entrySheet').classList.contains('open')) closeEntry();
+  else if ($('pasteSheet').classList.contains('open')) $('pasteSheet').classList.remove('open');
   else if ($('setSheet').classList.contains('open')) closeSettings();
 });
 

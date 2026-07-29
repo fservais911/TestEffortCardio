@@ -508,7 +508,7 @@
 <script>
 (() => {
 'use strict';
-const APP_VERSION = 'v0.3';
+const APP_VERSION = 'v0.4';
 document.querySelectorAll('.ver').forEach(el => { el.textContent = APP_VERSION; });
 
 // ============================================================ i18n
@@ -1837,19 +1837,25 @@ function paintSettings(){
   $('pVoice').setAttribute('aria-pressed', cfg.voice);
   paintLevelMap();
 }
+// A real three-column table — Charge · Niveau · Cadence — rather than a card grid.
+// Cadence is shown explicitly on every row (the general target, or the per-palier
+// override for the low paliers), so no value is hidden behind a placeholder.
 function paintLevelMap(){
   const box = $('levelMap'); box.innerHTML = '';
   const unit = cfg.cadUnit==='kmh' ? 'km/h' : 'tr/min';
-  const grid = el('div','three');
+  const COLS = '64px 1fr 1fr';
+  const mkRow = () => { const d = el('div'); d.style.display='grid'; d.style.gridTemplateColumns=COLS;
+    d.style.gap='6px'; d.style.alignItems='center'; d.style.marginBottom='6px'; return d; };
+  const hd = mkRow();
+  ['Charge','Niveau', 'Cadence ('+unit+')'].forEach(txt => {
+    const s = el('span','tiny',txt); s.style.opacity='.7'; hd.appendChild(s); });
+  box.appendChild(hd);
   for (let n=1; n<=10; n++){
     const w = wattsFor(n);
-    const lab = el('label','fld');
-    lab.appendChild(el('span', null, w+' W'));
-    const wrap = el('div');
-    wrap.style.display = 'flex'; wrap.style.gap = '6px';
+    const row = mkRow();
+    row.appendChild(el('span', null, w+' W'));
     const lvl = document.createElement('input');
-    lvl.type = 'number'; lvl.min = 0; lvl.max = 30; lvl.step = 1;
-    lvl.style.flex = '1'; lvl.style.minWidth = '0';
+    lvl.type = 'number'; lvl.min = 0; lvl.max = 30; lvl.step = 1; lvl.style.minWidth = '0';
     lvl.value = cfg.levelMap[String(w)] ?? '';
     lvl.placeholder = 'lift';
     lvl.title = 'Lift (résistance) pour cette charge';
@@ -1859,22 +1865,18 @@ function paintLevelMap(){
       save();
     };
     const cad = document.createElement('input');
-    cad.type = 'number'; cad.min = 0; cad.max = 200; cad.step = 1;
-    cad.style.flex = '1'; cad.style.minWidth = '0';
-    cad.value = (cfg.cadMap && cfg.cadMap[String(w)]) ?? '';
-    cad.placeholder = String(cfg.cadTarget);
-    cad.title = 'Cadence propre à ce palier (' + unit + ') — vide = cible générale';
+    cad.type = 'number'; cad.min = 0; cad.max = 200; cad.step = 1; cad.style.minWidth = '0';
+    cad.value = (cfg.cadMap && cfg.cadMap[String(w)] != null) ? cfg.cadMap[String(w)] : cfg.cadTarget;
+    cad.title = 'Cadence pour ce palier (' + unit + ')';
     cad.oninput = () => {
       if (!cfg.cadMap) cfg.cadMap = {};
       if (cad.value==='') delete cfg.cadMap[String(w)];
       else cfg.cadMap[String(w)] = Number(cad.value);
       save();
     };
-    wrap.appendChild(lvl); wrap.appendChild(cad);
-    lab.appendChild(wrap);
-    grid.appendChild(lab);
+    row.appendChild(lvl); row.appendChild(cad);
+    box.appendChild(row);
   }
-  box.appendChild(grid);
 }
 function readSettings(){
   cfg.dob = $('fDob').value;
@@ -1896,6 +1898,11 @@ function readSettings(){
 document.querySelectorAll('#consoleRow .pill').forEach(b => b.onclick = () => {
   cfg.csl[b.dataset.k] = !cfg.csl[b.dataset.k];
   b.setAttribute('aria-pressed', cfg.csl[b.dataset.k]); save();
+});
+// Changing anything that feeds the calibration table repaints it immediately,
+// so the numbers update live instead of only on close-and-reopen.
+['fCadUnit','fCadTarget','fStartW','fStepW'].forEach(id => {
+  const n = $(id); if (n) n.addEventListener('input', () => { readSettings(); save(); paintLevelMap(); });
 });
 document.querySelectorAll('#themeRow .pill').forEach(b => b.onclick = () => {
   cfg.theme = b.dataset.theme; applyTheme(); save(); paintSettings();

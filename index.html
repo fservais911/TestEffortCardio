@@ -469,8 +469,11 @@
     <div class="sep"></div>
     <h3>Table charge → niveau</h3>
     <p class="tiny" style="margin-bottom:8px">Un tour d'étalonnage : à la cadence cible,
-    notez le niveau de résistance qui donne chaque charge. Ensuite cette table ne change
-    plus jamais — c'est elle qui rend « 100 W » reproductible dans deux ans.</p>
+    notez le <b>lift</b> (résistance) qui donne chaque charge, et si besoin une
+    <b>cadence</b> propre à ce palier (2ᵉ champ — vide = cible générale). Pré-remplie
+    depuis l'étalonnage NordicTrack iFit à 70 tr/min : le lift 1 donne déjà 100 W, donc
+    50 et 75 W se tiennent au lift 1 à cadence réduite (45 et 58 tr/min). Ensuite cette
+    table ne change plus jamais — c'est elle qui rend « 100 W » reproductible dans deux ans.</p>
     <div id="levelMap"></div>
 
     <div class="sep"></div>
@@ -505,7 +508,7 @@
 <script>
 (() => {
 'use strict';
-const APP_VERSION = 'v0.2';
+const APP_VERSION = 'v0.3';
 document.querySelectorAll('.ver').forEach(el => { el.textContent = APP_VERSION; });
 
 // ============================================================ i18n
@@ -558,9 +561,16 @@ const DEFAULTS = {
   dob:'', sex:'M', weight:100, height:180, treatment:'',
   startW:50, stepW:25, palierSec:120, measureLead:45, bpEvery:1,
   recovery:[1,3,5],
-  cadUnit:'kmh', cadTarget:24, cadTol:2,
-  csl:{ watts:true, rpm:false, kmh:true, level:true },
-  levelMap:{},               // watts -> resistance level
+  cadUnit:'rpm', cadTarget:70, cadTol:5,
+  csl:{ watts:true, rpm:true, kmh:false, level:true },
+  // Calibration ride, NordicTrack iFit "lift", at 70 tr/min (console shows watts).
+  // watts cible -> lift (résistance). Nearest lift to the 25 W ladder; ties round up.
+  levelMap:{ '50':1, '75':1, '100':1, '125':4, '150':6, '175':8,
+             '200':9, '225':11, '250':12, '275':14, '300':15, '325':17 },
+  // Per-palier cadence override. At 70 tr/min the lift 1 already gives 100 W, so
+  // 50 W and 75 W are only reachable by pedalling slower at lift 1
+  // (W ≈ 2·tr/min − 40 : 45 → 50 W, 58 → 75 W). Everything else stays at cadTarget.
+  cadMap:{ '50':45, '75':58 },
   tone:true, voice:true,
 };
 let cfg = JSON.parse(JSON.stringify(DEFAULTS));
@@ -572,7 +582,12 @@ function saveTests(){ try{ localStorage.setItem(TKEY, JSON.stringify(tests)); }c
 function load(){
   try{
     const s = localStorage.getItem(SKEY);
-    if (s) { const o = JSON.parse(s); Object.assign(cfg, o); cfg.csl = Object.assign({}, DEFAULTS.csl, o.csl||{}); }
+    if (s) { const o = JSON.parse(s); Object.assign(cfg, o);
+      cfg.csl = Object.assign({}, DEFAULTS.csl, o.csl||{});
+      // Fill calibration gaps from the frozen default, but let any value the
+      // rider typed for their own bike win — same merge as csl.
+      cfg.levelMap = Object.assign({}, DEFAULTS.levelMap, o.levelMap||{});
+      cfg.cadMap = Object.assign({}, DEFAULTS.cadMap, o.cadMap||{}); }
     const t = localStorage.getItem(TKEY);
     if (t) tests = JSON.parse(t) || [];
   }catch(e){}
@@ -681,6 +696,10 @@ const run = { state:'idle', test:null, t0:0, palier:0, raf:0, lastTick:-1, cued:
 
 function wattsFor(n){ return cfg.startW + (n-1)*cfg.stepW; }
 function levelFor(w){ const v = cfg.levelMap[String(w)]; return v==null || v==='' ? null : Number(v); }
+// Target cadence for a given load: the per-palier override if one exists (the low
+// paliers ridden slower at lift 1), otherwise the single global target.
+function cadFor(w){ const v = cfg.cadMap && cfg.cadMap[String(w)]; return v==null || v==='' ? cfg.cadTarget : Number(v); }
+function curCadTarget(){ const r = lastPalier(); return (r && r.cadTgt!=null) ? r.cadTgt : cfg.cadTarget; }
 
 function newTest(){
   return {
@@ -699,7 +718,7 @@ function newTest(){
 }
 function mkRow(o){
   return Object.assign({
-    kind:'palier', n:null, watts:null, level:null, plannedSec:0, sec:0, at:null,
+    kind:'palier', n:null, watts:null, level:null, cadTgt:null, plannedSec:0, sec:0, at:null,
     hr:null, sys:null, dia:null, spo2:null, cad:null, rpe:null,
     symptoms:[], touched:{}, open:false,
   }, o);
@@ -726,7 +745,7 @@ function nextPalier(){
   run.state = 'palier';
   run.t0 = performance.now();
   run.cued = false; run.lastTick = -1; run.cadCued = 0;
-  run.test.rows.push(mkRow({ kind:'palier', n, watts:w, level:lvl, plannedSec:cfg.palierSec, cad:null }));
+  run.test.rows.push(mkRow({ kind:'palier', n, watts:w, level:lvl, cadTgt:cadFor(w), plannedSec:cfg.palierSec, cad:null }));
   cue('palier');
   speak(L().vPalier(n, lvl));
   paintRun();
@@ -833,7 +852,7 @@ function paintRun(){
     $('palierNo').textContent = `${t.palier} ${r.n} — ${r.watts} W`;
     $('cadHint').textContent = r.level==null
       ? 'Niveau inconnu pour cette charge : renseignez la table charge → niveau dans les réglages.'
-      : `Réglez la résistance sur ${r.level} et tenez la cadence.`;
+      : `Réglez la résistance sur ${r.level} et tenez ${r.cadTgt ?? cfg.cadTarget} ${cfg.cadUnit==='kmh'?'km/h':'tr/min'}.`;
     $('measureBtn').textContent = 'Saisir une mesure';
     $('stopBtn').textContent = 'STOP — j\'arrête';
   } else if (run.state==='recup'){
@@ -845,7 +864,7 @@ function paintRun(){
     $('stopBtn').textContent = 'STOP';
   }
   const unit = cfg.cadUnit==='kmh' ? 'km/h' : 'tr/min';
-  $('cadUnit').textContent = `${unit} · cible ${cfg.cadTarget}`;
+  $('cadUnit').textContent = `${unit} · cible ${run.state==='palier' ? curCadTarget() : cfg.cadTarget}`;
   $('cadLbl').textContent = t.cadence;
 }
 
@@ -856,7 +875,7 @@ let liveCad = null;
 function setCad(v){
   liveCad = Math.max(0, v);
   $('cadVal').textContent = liveCad;
-  const low = liveCad < cfg.cadTarget - cfg.cadTol;
+  const low = liveCad < curCadTarget() - cfg.cadTol;
   $('cadBox').classList.toggle('low', low);
   const r = lastPalier();
   if (r && run.state==='palier') r.cad = liveCad;
@@ -865,11 +884,11 @@ function setCad(v){
     if (now - run.cadCued > 8000){ run.cadCued = now; cue('cad'); speak(L().vCad); }
   }
 }
-$('cadUpBtn').onclick = () => setCad((liveCad==null?cfg.cadTarget:liveCad)+1);
-$('cadDownBtn').onclick = () => setCad((liveCad==null?cfg.cadTarget:liveCad)-1);
+$('cadUpBtn').onclick = () => setCad((liveCad==null?curCadTarget():liveCad)+1);
+$('cadDownBtn').onclick = () => setCad((liveCad==null?curCadTarget():liveCad)-1);
 
 $('stopBtn').onclick = () => {
-  if (run.state==='repos'){ nextPalier(); setCad(cfg.cadTarget); return; }
+  if (run.state==='repos'){ nextPalier(); setCad(curCadTarget()); return; }
   if (run.state==='palier'){ if (confirm('Arrêter l\'effort et passer en récupération ?')) doStop(); return; }
 };
 $('finishBtn').onclick = finishTest;
@@ -1122,11 +1141,14 @@ function metrics(t){
     rec[r.at] = peakHR!=null ? peakHR - r.hr : null;
   });
 
-  // cadence discipline: which paliers were ridden below target. Read from the
-  // test's own protocol — an imported or older test may have used another.
-  const tgtCad = (t.proto && t.proto.cadTarget) || null;
-  const cadLow = tgtCad==null ? []
-    : paliers.filter(r => r.cad!=null && r.cad < tgtCad - (cfg.cadTol||2));
+  // cadence discipline: which paliers were ridden below target. Each palier can
+  // carry its own target (the low paliers ridden slower at lift 1); fall back to
+  // the test's protocol target for older or imported tests without per-row cadTgt.
+  const protoCad = (t.proto && t.proto.cadTarget) || null;
+  const cadLow = paliers.filter(r => {
+    const tc = (r.cadTgt!=null) ? r.cadTgt : protoCad;
+    return tc!=null && r.cad!=null && r.cad < tc - (cfg.cadTol||2);
+  });
 
   return { age, fmt, sousMax, peakW, peakRow, peakHR, restRow, wkg, mets, metsTheo, pctFMT,
            maxDP, peakSys, peakDia, kJ, totalSec, rg, rgS, sysDrop,
@@ -1817,21 +1839,39 @@ function paintSettings(){
 }
 function paintLevelMap(){
   const box = $('levelMap'); box.innerHTML = '';
+  const unit = cfg.cadUnit==='kmh' ? 'km/h' : 'tr/min';
   const grid = el('div','three');
   for (let n=1; n<=10; n++){
     const w = wattsFor(n);
     const lab = el('label','fld');
     lab.appendChild(el('span', null, w+' W'));
-    const inp = document.createElement('input');
-    inp.type = 'number'; inp.min = 0; inp.max = 30; inp.step = 1;
-    inp.value = cfg.levelMap[String(w)] ?? '';
-    inp.placeholder = 'niv.';
-    inp.oninput = () => {
-      if (inp.value==='') delete cfg.levelMap[String(w)];
-      else cfg.levelMap[String(w)] = Number(inp.value);
+    const wrap = el('div');
+    wrap.style.display = 'flex'; wrap.style.gap = '6px';
+    const lvl = document.createElement('input');
+    lvl.type = 'number'; lvl.min = 0; lvl.max = 30; lvl.step = 1;
+    lvl.style.flex = '1'; lvl.style.minWidth = '0';
+    lvl.value = cfg.levelMap[String(w)] ?? '';
+    lvl.placeholder = 'lift';
+    lvl.title = 'Lift (résistance) pour cette charge';
+    lvl.oninput = () => {
+      if (lvl.value==='') delete cfg.levelMap[String(w)];
+      else cfg.levelMap[String(w)] = Number(lvl.value);
       save();
     };
-    lab.appendChild(inp);
+    const cad = document.createElement('input');
+    cad.type = 'number'; cad.min = 0; cad.max = 200; cad.step = 1;
+    cad.style.flex = '1'; cad.style.minWidth = '0';
+    cad.value = (cfg.cadMap && cfg.cadMap[String(w)]) ?? '';
+    cad.placeholder = String(cfg.cadTarget);
+    cad.title = 'Cadence propre à ce palier (' + unit + ') — vide = cible générale';
+    cad.oninput = () => {
+      if (!cfg.cadMap) cfg.cadMap = {};
+      if (cad.value==='') delete cfg.cadMap[String(w)];
+      else cfg.cadMap[String(w)] = Number(cad.value);
+      save();
+    };
+    wrap.appendChild(lvl); wrap.appendChild(cad);
+    lab.appendChild(wrap);
     grid.appendChild(lab);
   }
   box.appendChild(grid);

@@ -508,7 +508,7 @@
 <script>
 (() => {
 'use strict';
-const APP_VERSION = 'v0.4';
+const APP_VERSION = 'v0.5';
 document.querySelectorAll('.ver').forEach(el => { el.textContent = APP_VERSION; });
 
 // ============================================================ i18n
@@ -635,7 +635,9 @@ function ensureAudio(){
     s.buffer = actx.createBuffer(1,1,actx.sampleRate);
     s.connect(actx.destination); s.start(0);
   }
-  if (actx.state === 'suspended') actx.resume();
+  // iOS suspends the context on blur and can leave it 'interrupted' after a call
+  // or another app's audio; both need a resume before a cue will be heard.
+  if (actx.state === 'suspended' || actx.state === 'interrupted') actx.resume();
 }
 function noise(){
   if (!nbuf){
@@ -672,7 +674,9 @@ const CUES = {
   cad(){ const t=actx.currentTime+LEAD; osc('sine',t,240,200,.10,.20,.02,.16); },
   end(){ const t=actx.currentTime+LEAD; [660,550,440].forEach((f,i)=>osc('sine',t+i*.26,f,f,0,.26,.02,.40)); },
 };
-function cue(name){ if (!cfg.tone) return; ensureAudio(); if (actx && CUES[name]) CUES[name](); }
+// Audio must never be able to break timing: a throw here (a context in a bad
+// state on iOS) would otherwise take the whole clock down with it.
+function cue(name){ if (!cfg.tone) return; try{ ensureAudio(); if (actx && CUES[name]) CUES[name](); }catch(e){} }
 function speak(text){
   if (!cfg.voice || !('speechSynthesis' in window) || !text) return;
   const u = new SpeechSynthesisUtterance(text);
@@ -684,15 +688,27 @@ function speak(text){
 let wl = null;
 async function grabWake(){ try{ if ('wakeLock' in navigator) wl = await navigator.wakeLock.request('screen'); }catch(e){} }
 function dropWake(){ if (wl){ wl.release().catch(()=>{}); wl = null; } }
+// Coming back to the foreground (screen unlocked, app re-focused): the OS had
+// frozen our timer and suspended the audio context. Re-grab the wake lock, wake
+// the audio, and run one tick so the clock snaps to real time immediately
+// instead of showing a stale value until the next interval fires.
+function onResumeForeground(){
+  if (run.state === 'idle' || run.state === 'done') return;
+  grabWake();
+  if (cfg.tone){ try{ ensureAudio(); }catch(e){} }
+  tick();
+}
 document.addEventListener('visibilitychange', () => {
-  if (run.state !== 'idle' && document.visibilityState === 'visible') grabWake();
+  if (document.visibilityState === 'visible') onResumeForeground();
 });
+window.addEventListener('focus', onResumeForeground);
+window.addEventListener('pageshow', onResumeForeground);
 
 // ============================================================ engine
 // One test in progress. The clock never stops for data entry: a measurement
 // creates an open card in a queue and is tagged to the palier it was measured
 // in, not the one it happened to be typed in.
-const run = { state:'idle', test:null, t0:0, palier:0, raf:0, lastTick:-1, cued:false, cadCued:0, stopAt:0, recCued:{} };
+const run = { state:'idle', test:null, t0:0, palier:0, timer:0, lastTick:-1, cued:false, cadCued:0, stopAt:0, recCued:{} };
 
 function wattsFor(n){ return cfg.startW + (n-1)*cfg.stepW; }
 function levelFor(w){ const v = cfg.levelMap[String(w)]; return v==null || v==='' ? null : Number(v); }
@@ -734,7 +750,7 @@ function startTest(){
   show('scRun'); paintRun(); renderQueue();
   $('finishBtn').hidden = true;
   openEntry(0);
-  tickLoop();
+  startClock();
 }
 
 function nextPalier(){
@@ -777,7 +793,7 @@ function doStop(){
 
 function finishTest(){
   run.state = 'done';
-  cancelAnimationFrame(run.raf); dropWake();
+  stopClock(); dropWake();
   // Drop recovery rows that were never filled in, so the report shows what was
   // actually measured rather than empty promises.
   run.test.rows = run.test.rows.filter(r => r.kind!=='recovery' || r.hr!=null || r.sys!=null);
@@ -790,12 +806,20 @@ function finishTest(){
 
 function abortTest(){
   if (!confirm('Abandonner ce test ? Les mesures saisies seront perdues.')) return;
-  cancelAnimationFrame(run.raf); dropWake();
+  stopClock(); dropWake();
   run.state = 'idle'; run.test = null;
   closeEntry(); show('scHome'); renderHome(); renderQueue();
 }
 
-function tickLoop(){
+// The clock is driven by setInterval, not requestAnimationFrame. rAF is paused
+// outright by the browser whenever the page loses visibility or focus (iOS
+// backgrounds it on auto-lock or a glance away), which froze the timer mid-
+// palier and killed the cues. setInterval keeps firing while the tab is merely
+// blurred, and every tick recomputes from performance.now(), so the displayed
+// time is always the true elapsed time — it self-corrects after any gap.
+function startClock(){ stopClock(); tick(); run.timer = setInterval(tick, 250); }
+function stopClock(){ if (run.timer){ clearInterval(run.timer); run.timer = 0; } }
+function tick(){
   if (run.state === 'palier'){
     const elapsed = (performance.now()-run.t0)/1000;
     const rem = cfg.palierSec - elapsed;
@@ -830,7 +854,6 @@ function tickLoop(){
       }
     });
   }
-  if (run.state !== 'idle' && run.state !== 'done') run.raf = requestAnimationFrame(tickLoop);
 }
 
 function paintRun(){
